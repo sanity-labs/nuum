@@ -111,10 +111,15 @@ export async function runBatch(options: BatchOptions): Promise<void> {
       onEvent: (event) => {
         events.push(event)
         if (options.verbose) {
-          verbose.event({
-            type: event.type as "user" | "assistant" | "tool_call" | "tool_result" | "error",
-            content: event.content,
-          })
+          // Handle compaction events specially
+          if (event.type === "compaction" && event.compactionResult) {
+            verbose.compaction(event.compactionResult)
+          } else if (event.type !== "compaction" && event.type !== "done") {
+            verbose.event({
+              type: event.type as "user" | "assistant" | "tool_call" | "tool_result" | "error",
+              content: event.content,
+            })
+          }
         }
       },
     })

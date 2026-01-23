@@ -5,6 +5,7 @@
  */
 
 import type { Storage, PresentState } from "../storage"
+import type { CompactionResult } from "../temporal"
 
 const SEPARATOR = "─".repeat(70)
 
@@ -162,6 +163,32 @@ export class VerboseOutput {
     this.log(`\n[ERROR] ${message}`)
     if (error?.stack) {
       this.log(error.stack)
+    }
+  }
+
+  compaction(result: CompactionResult): void {
+    this.separator("COMPACTION")
+
+    this.log(`Summaries created:`)
+    this.log(`  Order-1: ${result.order1Created}`)
+    if (result.higherOrderCreated > 0) {
+      this.log(`  Higher-order: ${result.higherOrderCreated}`)
+    }
+
+    this.log(`\nTokens:`)
+    this.log(`  Compressed: ${result.tokensCompressed.toLocaleString()}`)
+    this.log(`  Remaining: ${result.tokensAfter.toLocaleString()}`)
+
+    const ratio = result.tokensCompressed > 0
+      ? (result.tokensCompressed / (result.tokensCompressed + result.tokensAfter) * 100).toFixed(1)
+      : "0.0"
+    this.log(`  Compression: ${ratio}%`)
+
+    if (result.warnings.length > 0) {
+      this.log(`\nWarnings:`)
+      for (const warning of result.warnings) {
+        this.log(`  ⚠ ${warning}`)
+      }
     }
   }
 }
