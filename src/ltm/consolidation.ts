@@ -435,10 +435,11 @@ export async function runConsolidation(
   // Build tools
   const tools = buildConsolidationTools()
 
-  // Agent loop - conversation history + system message for LTM review
+  // Agent loop - conversation history + LTM review task as user message
+  // (only the top-level system prompt can use system role)
   const agentMessages: CoreMessage[] = [
     ...historyTurns,
-    { role: "system", content: reviewTurnContent },
+    { role: "user", content: `[SYSTEM TASK]\n\n${reviewTurnContent}` },
   ]
 
   for (let turn = 0; turn < MAX_CONSOLIDATION_TURNS; turn++) {
