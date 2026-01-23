@@ -43,6 +43,8 @@ export interface AgentOptions {
   storage: Storage
   verbose?: boolean
   onEvent?: (event: AgentEvent) => void
+  /** AbortSignal for cancellation support */
+  abortSignal?: AbortSignal
 }
 
 export interface AgentEvent {
@@ -240,11 +242,13 @@ async function executeTool(
   sessionId: string,
   messageId: string,
   callId: string,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   const ctx = Tool.createContext({
     sessionID: sessionId,
     messageID: messageId,
     callID: callId,
+    abort: abortSignal,
   })
 
   switch (toolName) {
@@ -295,12 +299,30 @@ async function executeTool(
 /**
  * Run the main agent loop.
  */
+/**
+ * Error thrown when the agent is cancelled via AbortSignal.
+ */
+export class AgentCancelledError extends Error {
+  constructor() {
+    super("Agent execution cancelled")
+    this.name = "AgentCancelledError"
+  }
+}
+
+/**
+ * Run the main agent loop.
+ */
 export async function runAgent(
   prompt: string,
   options: AgentOptions,
 ): Promise<AgentResult> {
-  const { storage, onEvent } = options
+  const { storage, onEvent, abortSignal } = options
   const sessionId = Identifier.ascending("session")
+
+  // Check if already cancelled
+  if (abortSignal?.aborted) {
+    throw new AgentCancelledError()
+  }
 
   // Get the model
   const model = Provider.getModelForTier("reasoning")
@@ -334,6 +356,11 @@ export async function runAgent(
 
   // Agent loop
   for (let turn = 0; turn < MAX_TURNS; turn++) {
+    // Check for cancellation
+    if (abortSignal?.aborted) {
+      throw new AgentCancelledError()
+    }
+
     const result = await Provider.generate({
       model,
       system: systemPrompt,
@@ -408,8 +435,13 @@ export async function runAgent(
             sessionId,
             userMessageId,
             toolCall.toolCallId,
+            abortSignal,
           )
         } catch (error) {
+          // Check if this was a cancellation
+          if (abortSignal?.aborted) {
+            throw new AgentCancelledError()
+          }
           toolResult = `Error: ${error instanceof Error ? error.message : String(error)}`
           onEvent?.({ type: "error", content: toolResult })
         }
