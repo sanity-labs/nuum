@@ -5,6 +5,7 @@
  */
 
 import type { Storage, PresentState } from "../storage"
+import type { CompactionResult } from "../temporal"
 
 const SEPARATOR = "─".repeat(70)
 
@@ -12,10 +13,21 @@ function formatTimestamp(): string {
   return new Date().toISOString().slice(11, 23) // HH:MM:SS.mmm
 }
 
+export interface SummaryOrderStats {
+  order: number
+  count: number
+  totalTokens: number
+  coveringMessages?: number  // For order-1: how many messages covered
+  coveringSummaries?: number // For order-2+: how many lower-order summaries covered
+}
+
 export interface MemoryStats {
   totalMessages: number
   totalSummaries: number
+  summariesByOrder: SummaryOrderStats[]
   uncompactedTokens: number
+  totalMessageTokens: number  // Raw token count of all messages
+  totalSummaryTokens: number  // Total tokens in summaries
   temporalBudget: number
   ltmEntries: number
   identityTokens: number
@@ -28,6 +40,8 @@ export interface TokenBudget {
   identity: number
   behavior: number
   temporalView: number
+  temporalSummaries: number  // Breakdown of temporal view
+  temporalMessages: number   // Breakdown of temporal view
   present: number
   tools: number
   used: number
@@ -78,9 +92,28 @@ export class VerboseOutput {
     }
 
     this.log(`\nTemporal:`)
-    this.log(`  Total messages: ${stats.totalMessages}`)
-    this.log(`  Summaries: ${stats.totalSummaries}`)
+    this.log(`  Total messages: ${stats.totalMessages} (${stats.totalMessageTokens.toLocaleString()} tokens)`)
+
+    if (stats.summariesByOrder.length > 0) {
+      const maxOrder = Math.max(...stats.summariesByOrder.map(s => s.order))
+      this.log(`  Summaries: ${stats.totalSummaries} (orders 1-${maxOrder})`)
+      for (const orderStats of stats.summariesByOrder) {
+        const coverage = orderStats.order === 1
+          ? orderStats.coveringMessages ? `covering ${orderStats.coveringMessages} messages` : ""
+          : orderStats.coveringSummaries ? `covering ${orderStats.coveringSummaries} order-${orderStats.order - 1}` : ""
+        this.log(`    Order ${orderStats.order}: ${orderStats.count} summaries (${orderStats.totalTokens.toLocaleString()} tokens${coverage ? ", " + coverage : ""})`)
+      }
+    } else {
+      this.log(`  Summaries: ${stats.totalSummaries}`)
+    }
+
     this.log(`  Uncompacted: ${stats.uncompactedTokens.toLocaleString()} tokens (threshold: ${stats.temporalBudget.toLocaleString()})`)
+
+    // Show compression ratio if there are summaries
+    if (stats.totalSummaryTokens > 0 && stats.totalMessageTokens > 0) {
+      const ratio = stats.totalMessageTokens / stats.totalSummaryTokens
+      this.log(`  Compression ratio: ${ratio.toFixed(1)}x`)
+    }
 
     this.log(`\nLTM:`)
     this.log(`  Entries: ${stats.ltmEntries}`)
@@ -97,7 +130,8 @@ export class VerboseOutput {
     this.log("─".repeat(41))
     this.log(`System prompt       ${budget.systemPrompt.toString().padStart(7)}   ${pct(budget.systemPrompt).padStart(5)}%`)
     this.log(`Identity/behavior   ${(budget.identity + budget.behavior).toString().padStart(7)}   ${pct(budget.identity + budget.behavior).padStart(5)}%`)
-    this.log(`Temporal view       ${budget.temporalView.toString().padStart(7)}   ${pct(budget.temporalView).padStart(5)}%`)
+    this.log(`Temporal summaries  ${budget.temporalSummaries.toString().padStart(7)}   ${pct(budget.temporalSummaries).padStart(5)}%`)
+    this.log(`Temporal messages   ${budget.temporalMessages.toString().padStart(7)}   ${pct(budget.temporalMessages).padStart(5)}%`)
     this.log(`Present state       ${budget.present.toString().padStart(7)}   ${pct(budget.present).padStart(5)}%`)
     this.log(`Tools               ${budget.tools.toString().padStart(7)}   ${pct(budget.tools).padStart(5)}%`)
     this.log("─".repeat(41))
@@ -145,9 +179,28 @@ export class VerboseOutput {
     }
 
     this.log(`\nTemporal:`)
-    this.log(`  Total messages: ${stats.totalMessages}`)
-    this.log(`  Summaries: ${stats.totalSummaries}`)
+    this.log(`  Total messages: ${stats.totalMessages} (${stats.totalMessageTokens.toLocaleString()} tokens)`)
+
+    if (stats.summariesByOrder.length > 0) {
+      const maxOrder = Math.max(...stats.summariesByOrder.map(s => s.order))
+      this.log(`  Summaries: ${stats.totalSummaries} (orders 1-${maxOrder})`)
+      for (const orderStats of stats.summariesByOrder) {
+        const coverage = orderStats.order === 1
+          ? orderStats.coveringMessages ? `covering ${orderStats.coveringMessages} messages` : ""
+          : orderStats.coveringSummaries ? `covering ${orderStats.coveringSummaries} order-${orderStats.order - 1}` : ""
+        this.log(`    Order ${orderStats.order}: ${orderStats.count} summaries (${orderStats.totalTokens.toLocaleString()} tokens${coverage ? ", " + coverage : ""})`)
+      }
+    } else {
+      this.log(`  Summaries: ${stats.totalSummaries}`)
+    }
+
     this.log(`  Uncompacted: ${stats.uncompactedTokens.toLocaleString()} tokens`)
+
+    // Show compression ratio if there are summaries
+    if (stats.totalSummaryTokens > 0 && stats.totalMessageTokens > 0) {
+      const ratio = stats.totalMessageTokens / stats.totalSummaryTokens
+      this.log(`  Compression ratio: ${ratio.toFixed(1)}x`)
+    }
 
     // Calculate cost estimate (Claude Opus 4.5 pricing: $15/$75 per 1M tokens)
     const inputCost = (usage.inputTokens / 1_000_000) * 15
@@ -162,6 +215,32 @@ export class VerboseOutput {
     this.log(`\n[ERROR] ${message}`)
     if (error?.stack) {
       this.log(error.stack)
+    }
+  }
+
+  compaction(result: CompactionResult): void {
+    this.separator("COMPACTION")
+
+    this.log(`Summaries created:`)
+    this.log(`  Order-1: ${result.order1Created}`)
+    if (result.higherOrderCreated > 0) {
+      this.log(`  Higher-order: ${result.higherOrderCreated}`)
+    }
+
+    this.log(`\nTokens:`)
+    this.log(`  Compressed: ${result.tokensCompressed.toLocaleString()}`)
+    this.log(`  Remaining: ${result.tokensAfter.toLocaleString()}`)
+
+    const ratio = result.tokensCompressed > 0
+      ? (result.tokensCompressed / (result.tokensCompressed + result.tokensAfter) * 100).toFixed(1)
+      : "0.0"
+    this.log(`  Compression: ${ratio}%`)
+
+    if (result.warnings.length > 0) {
+      this.log(`\nWarnings:`)
+      for (const warning of result.warnings) {
+        this.log(`  ⚠ ${warning}`)
+      }
     }
   }
 }

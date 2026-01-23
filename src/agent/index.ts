@@ -25,6 +25,17 @@ import { Config } from "../config"
 import type { Storage, Task } from "../storage"
 import { Identifier } from "../id"
 import { Tool, BashTool, ReadTool, EditTool, WriteTool, GlobTool, GrepTool } from "../tool"
+import {
+  buildTemporalView,
+  renderTemporalView,
+  shouldTriggerCompaction,
+  runCompactionWorker,
+  createSummarizationLLM,
+  type CompactionResult,
+} from "../temporal"
+import { Log } from "../util/log"
+
+const log = Log.create({ service: "agent" })
 
 const MAX_TURNS = 50
 
@@ -35,10 +46,11 @@ export interface AgentOptions {
 }
 
 export interface AgentEvent {
-  type: "user" | "assistant" | "tool_call" | "tool_result" | "error" | "done"
+  type: "user" | "assistant" | "tool_call" | "tool_result" | "error" | "done" | "compaction"
   content: string
   toolName?: string
   toolCallId?: string
+  compactionResult?: CompactionResult
 }
 
 export interface AgentResult {
@@ -59,6 +71,7 @@ function estimateTokens(text: string): number {
 
 /**
  * Build the system prompt including memory state.
+ * Uses temporal view with summaries for efficient context usage.
  */
 async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; tokens: number }> {
   // Get identity and behavior from LTM
@@ -68,20 +81,20 @@ async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; to
   // Get present state
   const present = await storage.present.get()
 
-  // Get temporal history (previous messages for multi-turn persistence)
+  // Get temporal history using the temporal view (with summaries)
   const config = Config.get()
   const temporalBudget = config.tokenBudgets.temporalBudget
-  const allMessages = await storage.temporal.getMessages()
 
-  // Select recent messages that fit within budget (newest first)
-  const selectedMessages: typeof allMessages = []
-  let temporalTokens = 0
-  for (let i = allMessages.length - 1; i >= 0; i--) {
-    const msg = allMessages[i]
-    if (temporalTokens + msg.tokenEstimate > temporalBudget) break
-    selectedMessages.unshift(msg)
-    temporalTokens += msg.tokenEstimate
-  }
+  // Fetch messages and summaries for temporal view
+  const allMessages = await storage.temporal.getMessages()
+  const allSummaries = await storage.temporal.getSummaries()
+
+  // Build temporal view that fits within budget
+  const temporalView = buildTemporalView({
+    budget: temporalBudget,
+    messages: allMessages,
+    summaries: allSummaries,
+  })
 
   // Build system prompt
   let prompt = `You are a coding assistant with persistent memory.
@@ -108,26 +121,13 @@ ${behavior.body}
 `
   }
 
-  // Add temporal history (conversation memory from previous sessions)
-  if (selectedMessages.length > 0) {
+  // Add temporal history using rendered view (includes summaries + recent messages)
+  if (temporalView.summaries.length > 0 || temporalView.messages.length > 0) {
     prompt += `<conversation_history>
 The following is your memory of previous interactions with this user:
 
-`
-    for (const msg of selectedMessages) {
-      const role = msg.type === "user" ? "User" :
-                   msg.type === "assistant" ? "Assistant" :
-                   msg.type === "tool_call" ? "Tool Call" :
-                   msg.type === "tool_result" ? "Tool Result" : msg.type
-
-      // Truncate very long content for context efficiency
-      const content = msg.content.length > 500
-        ? msg.content.slice(0, 500) + "..."
-        : msg.content
-
-      prompt += `[${role}]: ${content}\n`
-    }
-    prompt += `</conversation_history>
+${renderTemporalView(temporalView)}
+</conversation_history>
 
 `
   }
@@ -469,11 +469,75 @@ export async function runAgent(
 
   onEvent?.({ type: "done", content: finalResponse })
 
+  // Check if compaction is needed after the agent turn
+  await maybeRunCompaction(storage, onEvent)
+
   return {
     response: finalResponse,
     usage: {
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
     },
+  }
+}
+
+/**
+ * Check if compaction should be triggered and run it if needed.
+ */
+async function maybeRunCompaction(
+  storage: Storage,
+  onEvent?: (event: AgentEvent) => void,
+): Promise<CompactionResult | null> {
+  const config = Config.get()
+
+  const shouldCompact = await shouldTriggerCompaction(
+    storage.temporal,
+    storage.workers,
+    {
+      compactionThreshold: config.tokenBudgets.compactionThreshold,
+      compactionTarget: config.tokenBudgets.compactionTarget,
+    },
+  )
+
+  if (!shouldCompact) {
+    return null
+  }
+
+  log.info("compaction triggered", {
+    threshold: config.tokenBudgets.compactionThreshold,
+    target: config.tokenBudgets.compactionTarget,
+  })
+
+  try {
+    const llm = createSummarizationLLM()
+    const result = await runCompactionWorker(
+      storage,
+      llm,
+      {
+        compactionThreshold: config.tokenBudgets.compactionThreshold,
+        compactionTarget: config.tokenBudgets.compactionTarget,
+      },
+    )
+
+    log.info("compaction complete", {
+      order1Created: result.order1Created,
+      higherOrderCreated: result.higherOrderCreated,
+      tokensCompressed: result.tokensCompressed,
+    })
+
+    onEvent?.({
+      type: "compaction",
+      content: `Compacted ${result.tokensCompressed} tokens (${result.order1Created} order-1, ${result.higherOrderCreated} higher-order summaries)`,
+      compactionResult: result,
+    })
+
+    return result
+  } catch (error) {
+    log.error("compaction failed", { error })
+    onEvent?.({
+      type: "error",
+      content: `Compaction failed: ${error instanceof Error ? error.message : String(error)}`,
+    })
+    return null
   }
 }

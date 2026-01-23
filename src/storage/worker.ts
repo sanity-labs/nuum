@@ -24,6 +24,9 @@ export interface WorkerStorage {
   ): Promise<void>
   getByType(type: WorkerType): Promise<Worker[]>
   getRunning(): Promise<Worker[]>
+  getAll(): Promise<Worker[]>
+  complete(id: string): Promise<void>
+  fail(id: string, error: string): Promise<void>
 }
 
 export function createWorkerStorage(db: DrizzleDB | AnyDrizzleDB): WorkerStorage {
@@ -63,6 +66,28 @@ export function createWorkerStorage(db: DrizzleDB | AnyDrizzleDB): WorkerStorage
         .from(workers)
         .where(eq(workers.status, "running"))
         .orderBy(workers.id)
+    },
+
+    async getAll(): Promise<Worker[]> {
+      return db
+        .select()
+        .from(workers)
+        .orderBy(workers.id)
+    },
+
+    async complete(id: string): Promise<void> {
+      await db.update(workers).set({
+        status: "completed",
+        completedAt: new Date().toISOString(),
+      }).where(eq(workers.id, id))
+    },
+
+    async fail(id: string, error: string): Promise<void> {
+      await db.update(workers).set({
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error,
+      }).where(eq(workers.id, id))
     },
   }
 }
