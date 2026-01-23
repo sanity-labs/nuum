@@ -256,9 +256,9 @@ describe("view reconstruction with IDs", () => {
 
     const turns = reconstructHistoryAsTurns(view)
 
-    // Should have summary turn with from/to IDs
+    // Should have summary turn with from/to IDs (summaries are assistant messages)
     const summaryTurn = turns.find(t =>
-      t.role === "user" &&
+      t.role === "assistant" &&
       typeof t.content === "string" &&
       t.content.includes("[summary from:")
     )

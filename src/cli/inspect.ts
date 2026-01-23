@@ -329,39 +329,35 @@ export async function runInspect(dbPath: string): Promise<void> {
 }
 
 /**
- * Render a CoreMessage turn for display.
+ * Render a CoreMessage turn content for display.
+ * Shows exactly what the agent would see.
  */
-function renderTurn(turn: CoreMessage, index: number): string {
-  const lines: string[] = []
-  const roleLabel = turn.role.toUpperCase()
-
+function renderTurnContent(turn: CoreMessage): string {
   if (typeof turn.content === "string") {
-    lines.push(`[${index}] ${roleLabel}:`)
-    lines.push(turn.content)
+    return turn.content
   } else if (Array.isArray(turn.content)) {
-    lines.push(`[${index}] ${roleLabel}:`)
+    const parts: string[] = []
     for (const part of turn.content) {
       if (part.type === "text") {
-        lines.push(part.text)
+        parts.push(part.text)
       } else if (part.type === "tool-call") {
-        lines.push(`  [tool-call: ${part.toolName}]`)
-        lines.push(`    args: ${JSON.stringify(part.args, null, 2).split("\n").join("\n    ")}`)
+        parts.push(`[tool_call: ${part.toolName}(${JSON.stringify(part.args)})]`)
       } else if (part.type === "tool-result") {
         const result = typeof part.result === "string"
-          ? part.result.slice(0, 200) + (part.result.length > 200 ? "..." : "")
-          : JSON.stringify(part.result).slice(0, 200)
-        lines.push(`  [tool-result: ${part.toolName}]`)
-        lines.push(`    ${result}`)
+          ? part.result.slice(0, 500) + (part.result.length > 500 ? "..." : "")
+          : JSON.stringify(part.result).slice(0, 500)
+        parts.push(`[tool_result: ${part.toolName}] ${result}`)
       }
     }
+    return parts.join("\n")
   }
-
-  return lines.join("\n")
+  return ""
 }
 
 /**
  * Run the --dump command.
- * Shows the system prompt + conversation turns as they would appear to the agent.
+ * Shows exactly what the agent sees - system prompt and conversation turns.
+ * No decorative formatting, just the raw content as sent to the LLM.
  */
 export async function runDump(dbPath: string): Promise<void> {
   const storage = createStorage(dbPath)
@@ -395,41 +391,29 @@ export async function runDump(dbPath: string): Promise<void> {
 
   const totalTokens = systemTokens + conversationTokens
 
+  // Header with stats
   console.log()
-  console.log(SEPARATOR)
-  console.log("AGENT PROMPT DUMP")
-  console.log(SEPARATOR)
+  console.log(`# Agent Prompt Dump`)
+  console.log(`# System: ~${fmt(systemTokens)} tokens | Conversation: ${conversationTurns.length} turns, ~${fmt(conversationTokens)} tokens | Total: ~${fmt(totalTokens)} tokens`)
   console.log()
-  console.log(`System prompt: ~${fmt(systemTokens)} tokens`)
-  console.log(`Conversation: ${conversationTurns.length} turns, ~${fmt(conversationTokens)} tokens`)
-  console.log(`Total: ~${fmt(totalTokens)} tokens`)
 
-  console.log()
-  console.log(SEPARATOR)
-  console.log("SYSTEM PROMPT")
-  console.log(SEPARATOR)
-  console.log()
+  // System prompt - exactly as sent
+  console.log(`=== SYSTEM ===`)
   console.log(systemPrompt)
 
-  console.log()
-  console.log(SEPARATOR)
-  console.log(`CONVERSATION HISTORY (${conversationTurns.length} turns)`)
-  console.log(SEPARATOR)
-
-  if (conversationTurns.length === 0) {
+  // Conversation turns - exactly as sent
+  if (conversationTurns.length > 0) {
     console.log()
-    console.log("(no conversation history)")
-  } else {
-    for (let i = 0; i < conversationTurns.length; i++) {
+    console.log(`=== CONVERSATION (${conversationTurns.length} turns) ===`)
+    for (const turn of conversationTurns) {
       console.log()
-      console.log(SUBSEPARATOR)
-      console.log(renderTurn(conversationTurns[i], i))
+      console.log(`--- ${turn.role.toUpperCase()} ---`)
+      console.log(renderTurnContent(turn))
     }
+  } else {
+    console.log()
+    console.log(`=== CONVERSATION (empty) ===`)
   }
 
-  console.log()
-  console.log(SEPARATOR)
-  console.log("END OF DUMP")
-  console.log(SEPARATOR)
   console.log()
 }

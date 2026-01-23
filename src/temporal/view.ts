@@ -135,7 +135,7 @@ export function reconstructHistoryAsTurns(view: TemporalView): CoreMessage[] {
     const messageKey = message?.id
 
     if (summaryKey && (!messageKey || summaryKey < messageKey)) {
-      // Insert summary as a system message with range IDs visible
+      // Insert summary as an assistant message (represents past assistant work)
       const observations = JSON.parse(summary.keyObservations) as string[]
       let summaryContent = `[summary from:${summary.startId} to:${summary.endId}]\n${summary.narrative}`
       if (observations.length > 0) {
@@ -143,13 +143,8 @@ export function reconstructHistoryAsTurns(view: TemporalView): CoreMessage[] {
       }
 
       turns.push({
-        role: "user",
-        content: `[SYSTEM: ${summaryContent}]`,
-      })
-      // Add a placeholder assistant acknowledgment to maintain turn structure
-      turns.push({
         role: "assistant",
-        content: "(Acknowledged previous context)",
+        content: summaryContent,
       })
       summaryIdx++
     } else if (messageKey) {
@@ -275,14 +270,10 @@ function processMessageForTurn(
       return { turns: [], nextIdx: currentIdx + 1 }
 
     case "system":
-      // System messages become user messages with [SYSTEM:] prefix
-      turns.push({
-        role: "user",
-        content: `[SYSTEM: ${formatWithId(message.id, message.content)}]`,
-      })
+      // System messages become assistant messages (context injections)
       turns.push({
         role: "assistant",
-        content: "(Acknowledged)",
+        content: `[system ${formatWithId(message.id, message.content)}]`,
       })
       return { turns, nextIdx: currentIdx + 1 }
 

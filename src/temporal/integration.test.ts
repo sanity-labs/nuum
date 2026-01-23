@@ -268,9 +268,9 @@ describe("Temporal View Turn Reconstruction", () => {
 
     const turns = reconstructHistoryAsTurns(view)
 
-    // Should have: summary (user + ack), then recent message
+    // Should have: summary (assistant), then recent message
     const summaryTurn = turns.find(t =>
-      t.role === "user" &&
+      t.role === "assistant" &&
       typeof t.content === "string" &&
       t.content.includes("[summary from:")
     )
