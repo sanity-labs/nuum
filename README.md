@@ -111,15 +111,18 @@ bun run build
 
 ## Configuration
 
-Phase 1 uses environment variables:
+Only `ANTHROPIC_API_KEY` is required. All other settings have sensible defaults:
 
 ```bash
+# Required
+ANTHROPIC_API_KEY=your-key-here
+
+# Optional (defaults shown)
 AGENT_PROVIDER=anthropic
 AGENT_MODEL_REASONING=claude-opus-4-5-20251101
 AGENT_MODEL_WORKHORSE=claude-sonnet-4-5-20250929
 AGENT_MODEL_FAST=claude-haiku-4-5-20251001
 AGENT_DB=./agent.db
-ANTHROPIC_API_KEY=your-key-here
 ```
 
 ## Acknowledgments
