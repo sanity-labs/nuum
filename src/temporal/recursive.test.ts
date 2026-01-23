@@ -506,4 +506,50 @@ describe("recursive summarization (integration)", () => {
     expect(invariant.passes).toBe(true)
     expect(invariant.projectedTokens).toBeLessThan(budget)
   })
+
+  it("handles out-of-order summary creation defensively", () => {
+    // Edge case: order-2 exists but order-1 summaries are incomplete
+    // This shouldn't happen in normal operation, but test defensive behavior
+    const summaries = [
+      // Order-2 covering some range
+      makeSummary("sum_010", 2, "msg_001", "msg_080"),
+      // Order-1 summaries created AFTER the order-2 (unusual)
+      makeSummary("sum_011", 1, "msg_081", "msg_100"),
+      makeSummary("sum_012", 1, "msg_101", "msg_120"),
+    ]
+
+    // Should not find any order for summarization:
+    // - Order-1: only 2 unsubsumed (< 4 min)
+    // - Order-2: only 1 (< 4 min)
+    const next = getNextOrderToSummarize(summaries)
+    expect(next).toBeNull()
+
+    // Coverage functions should still work correctly
+    const unsubsumed1 = getUnsubsumedSummariesAtOrder(summaries, 1)
+    const unsubsumed2 = getUnsubsumedSummariesAtOrder(summaries, 2)
+
+    expect(unsubsumed1).toHaveLength(2) // sum_011, sum_012 not covered by order-2
+    expect(unsubsumed2).toHaveLength(1) // sum_010
+  })
+
+  it("handles order-2 with partial order-1 coverage", () => {
+    // Order-2 exists covering some order-1, but there are also standalone order-1
+    const summaries = [
+      makeSummary("sum_001", 1, "msg_001", "msg_020"),
+      makeSummary("sum_002", 1, "msg_021", "msg_040"),
+      makeSummary("sum_003", 2, "msg_001", "msg_040"), // Covers sum_001, sum_002
+      makeSummary("sum_004", 1, "msg_041", "msg_060"),
+      makeSummary("sum_005", 1, "msg_061", "msg_080"),
+      makeSummary("sum_006", 1, "msg_081", "msg_100"),
+      makeSummary("sum_007", 1, "msg_101", "msg_120"),
+    ]
+
+    const next = getNextOrderToSummarize(summaries)
+    // Should find the 4 unsubsumed order-1 summaries (sum_004-007)
+    expect(next).not.toBeNull()
+    expect(next!.order).toBe(2)
+    expect(next!.summariesToProcess).toHaveLength(4)
+    expect(next!.summariesToProcess.every((s) => s.orderNum === 1)).toBe(true)
+    expect(next!.summariesToProcess.every((s) => s.id >= "sum_004")).toBe(true)
+  })
 })
