@@ -39,6 +39,7 @@ interface MemoryStats {
   summariesByOrder: SummaryOrderStats[]
   uncompactedTokens: number
   temporalBudget: number
+  compactionThreshold: number
   // View
   viewSummaryCount: number
   viewSummaryTokens: number
@@ -68,6 +69,7 @@ interface MemoryStats {
 async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   const config = Config.get()
   const temporalBudget = config.tokenBudgets.temporalBudget
+  const compactionThreshold = config.tokenBudgets.compactionThreshold
 
   // Get temporal data
   const messages = await storage.temporal.getMessages()
@@ -143,6 +145,7 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
     summariesByOrder,
     uncompactedTokens,
     temporalBudget,
+    compactionThreshold,
     viewSummaryCount: view.summaries.length,
     viewSummaryTokens: view.breakdown.summaryTokens,
     viewMessageCount: view.messages.length,
@@ -205,8 +208,8 @@ export async function runInspect(dbPath: string): Promise<void> {
 
   console.log("Compaction:")
   console.log(`  Uncompacted: ${fmt(stats.uncompactedTokens)} tokens`)
-  console.log(`  Threshold: ${fmt(stats.temporalBudget)} tokens`)
-  const compactionPct = ((stats.uncompactedTokens / stats.temporalBudget) * 100).toFixed(1)
+  console.log(`  Threshold: ${fmt(stats.compactionThreshold)} tokens`)
+  const compactionPct = ((stats.uncompactedTokens / stats.compactionThreshold) * 100).toFixed(1)
   console.log(`  Status: ${compactionPct}% of threshold`)
   console.log()
 
