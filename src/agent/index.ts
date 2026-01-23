@@ -24,7 +24,19 @@ import { Provider } from "../provider"
 import { Config } from "../config"
 import type { Storage, Task } from "../storage"
 import { Identifier } from "../id"
-import { Tool, BashTool, ReadTool, EditTool, WriteTool, GlobTool, GrepTool } from "../tool"
+import {
+  Tool,
+  BashTool,
+  ReadTool,
+  EditTool,
+  WriteTool,
+  GlobTool,
+  GrepTool,
+  LTMGlobTool,
+  LTMSearchTool,
+  LTMReadTool,
+  type LTMToolContext,
+} from "../tool"
 import {
   buildTemporalView,
   renderTemporalView,
@@ -247,47 +259,20 @@ function buildTools(): Record<string, CoreTool> {
   })
 
   // LTM retrieval tools (read-only access to knowledge base)
+  // Use shared tool definitions from src/tool/ltm.ts
   tools.ltm_glob = tool({
-    description: `Browse the knowledge base tree structure. Use to:
-- See what knowledge is available
-- Understand the organization
-- Find related topics to explore
-
-Example: ltm_glob({ pattern: "/**" })
-Example: ltm_glob({ pattern: "/knowledge/**", maxDepth: 2 })
-Returns: [{ slug, title, path, hasChildren }, ...]`,
-    parameters: z.object({
-      pattern: z.string().describe("Glob pattern: '/**' (all), '/knowledge/**' (subtree), '/*' (root)"),
-      maxDepth: z.number().optional().describe("Maximum tree depth to return"),
-    }),
+    description: LTMGlobTool.definition.description,
+    parameters: LTMGlobTool.definition.parameters,
   })
 
   tools.ltm_search = tool({
-    description: `Search your knowledge base. Use when you need to recall:
-- Information from past work
-- User preferences or project details
-- Technical knowledge you've stored
-
-Example: ltm_search({ query: "authentication" })
-Example: ltm_search({ query: "react", path: "/knowledge", limit: 5 })
-Returns: [{ slug, title, path, snippet }, ...] ranked by relevance`,
-    parameters: z.object({
-      query: z.string().describe("Search keywords"),
-      path: z.string().optional().describe("Limit search to subtree (e.g., '/knowledge')"),
-      limit: z.number().optional().describe("Max results (default: 10)"),
-    }),
+    description: LTMSearchTool.definition.description,
+    parameters: LTMSearchTool.definition.parameters,
   })
 
   tools.ltm_read = tool({
-    description: `Read a specific knowledge entry by slug. Use after ltm_search finds relevant results, or when you know the exact slug.
-
-Example: ltm_read({ slug: "react-hooks" })
-Returns: { slug, title, body, path } or "Entry not found"
-
-Knowledge entries may contain [[slug]] cross-references - follow these to explore connected knowledge.`,
-    parameters: z.object({
-      slug: z.string().describe("The entry slug to read (e.g., 'identity', 'react-hooks')"),
-    }),
+    description: LTMReadTool.definition.description,
+    parameters: LTMReadTool.definition.parameters,
   })
 
   return tools
@@ -352,48 +337,58 @@ async function executeTool(
       await storage.present.setTasks(tasks)
       return `Tasks updated (${tasks.length} tasks)`
     }
-    // LTM retrieval tools
+    // LTM retrieval tools - use shared implementations
     case "ltm_glob": {
-      const { pattern, maxDepth } = args as { pattern: string; maxDepth?: number }
-      const entries = await storage.ltm.glob(pattern, maxDepth)
-      const formatted = await Promise.all(entries.map(async e => {
-        const children = await storage.ltm.getChildren(e.slug)
-        return {
-          slug: e.slug,
-          title: e.title,
-          path: e.path,
-          hasChildren: children.length > 0,
-        }
-      }))
-      return JSON.stringify(formatted, null, 2)
+      const ltmCtx = Tool.createContext({
+        sessionID: sessionId,
+        messageID: messageId,
+        callID: callId,
+        abort: abortSignal,
+      })
+      // Inject LTM context
+      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
+        ltm: storage.ltm,
+        agentType: "main",
+      }
+      const result = await LTMGlobTool.definition.execute(
+        args as z.infer<typeof LTMGlobTool.definition.parameters>,
+        ltmCtx as Tool.Context & { extra: LTMToolContext },
+      )
+      return result.output
     }
     case "ltm_search": {
-      const { query, path, limit } = args as { query: string; path?: string; limit?: number }
-      const results = await storage.ltm.search(query, path)
-      const limited = results.slice(0, limit ?? 10)
-      const formatted = limited.map(r => ({
-        slug: r.entry.slug,
-        title: r.entry.title,
-        path: r.entry.path,
-        snippet: r.entry.body.slice(0, 150) + (r.entry.body.length > 150 ? "..." : ""),
-      }))
-      if (formatted.length === 0) {
-        return `No entries found matching "${query}"`
+      const ltmCtx = Tool.createContext({
+        sessionID: sessionId,
+        messageID: messageId,
+        callID: callId,
+        abort: abortSignal,
+      })
+      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
+        ltm: storage.ltm,
+        agentType: "main",
       }
-      return JSON.stringify(formatted, null, 2)
+      const result = await LTMSearchTool.definition.execute(
+        args as z.infer<typeof LTMSearchTool.definition.parameters>,
+        ltmCtx as Tool.Context & { extra: LTMToolContext },
+      )
+      return result.output
     }
     case "ltm_read": {
-      const { slug } = args as { slug: string }
-      const entry = await storage.ltm.read(slug)
-      if (!entry) {
-        return `Entry not found: ${slug}`
+      const ltmCtx = Tool.createContext({
+        sessionID: sessionId,
+        messageID: messageId,
+        callID: callId,
+        abort: abortSignal,
+      })
+      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
+        ltm: storage.ltm,
+        agentType: "main",
       }
-      return JSON.stringify({
-        slug: entry.slug,
-        title: entry.title,
-        body: entry.body,
-        path: entry.path,
-      }, null, 2)
+      const result = await LTMReadTool.definition.execute(
+        args as z.infer<typeof LTMReadTool.definition.parameters>,
+        ltmCtx as Tool.Context & { extra: LTMToolContext },
+      )
+      return result.output
     }
     default:
       throw new Error(`Unknown tool: ${toolName}`)

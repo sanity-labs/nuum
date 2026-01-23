@@ -34,6 +34,19 @@ import type { AgentType } from "../storage/ltm"
 import { Provider } from "../provider"
 import { Identifier } from "../id"
 import { Log } from "../util/log"
+import {
+  Tool,
+  LTMGlobTool,
+  LTMSearchTool,
+  LTMReadTool,
+  LTMCreateTool,
+  LTMUpdateTool,
+  LTMEditTool,
+  LTMReparentTool,
+  LTMRenameTool,
+  LTMArchiveTool,
+  type LTMToolContext,
+} from "../tool"
 
 const log = Log.create({ service: "consolidation-agent" })
 
@@ -94,177 +107,59 @@ export function isConversationNoteworthy(messages: TemporalMessage[]): boolean {
 
 /**
  * Build tools for the consolidation agent.
+ * Uses shared tool definitions from src/tool/ltm.ts.
  */
-function buildConsolidationTools(
-  storage: Storage,
-  result: ConsolidationResult,
-): Record<string, CoreTool> {
+function buildConsolidationTools(): Record<string, CoreTool> {
   const tools: Record<string, CoreTool> = {}
 
-  // ltm_read - Read an LTM entry
+  // LTM read-only tools (shared definitions)
   tools.ltm_read = tool({
-    description: `Read an LTM entry by slug. Returns entry content, version, and path.
-
-Use AFTER ltm_search finds relevant results, or when you know the exact slug.
-The version is needed for CAS operations (edit, update, reparent, rename).
-
-Example: ltm_read({ slug: "react-hooks" })
-Returns: { slug, title, body, path, version } or "Entry not found"`,
-    parameters: z.object({
-      slug: z.string().describe("The entry slug to read (e.g., 'identity', 'react-hooks')"),
-    }),
+    description: LTMReadTool.definition.description,
+    parameters: LTMReadTool.definition.parameters,
   })
 
-  // ltm_glob - Browse tree structure (NEW)
   tools.ltm_glob = tool({
-    description: `Browse the LTM tree structure as a compact indented tree.
-
-Use /* to see one level with collapsed counts:
-  project-prefs (18 items)
-  algorithms (12 items)
-
-Use /** to expand everything:
-  project-prefs
-    auth-patterns
-    code-style
-  algorithms
-    sorting
-    searching`,
-    parameters: z.object({
-      pattern: z.string().describe("Glob pattern: '/*' (root + counts), '/**' (expand all), '/foo/*' (under foo)"),
-    }),
+    description: LTMGlobTool.definition.description,
+    parameters: LTMGlobTool.definition.parameters,
   })
 
-  // ltm_search - Search for related entries (NEW)
   tools.ltm_search = tool({
-    description: `Search LTM by keyword. Use BEFORE creating new entries to:
-- Find related entries (avoid duplicates!)
-- Find entries to update or merge
-- Discover existing knowledge on a topic
-
-Example: ltm_search({ query: "authentication" })
-Example: ltm_search({ query: "hooks", path: "/knowledge/react", limit: 5 })
-Returns: [{ slug, title, path, snippet }, ...] ranked by relevance`,
-    parameters: z.object({
-      query: z.string().describe("Search keywords"),
-      path: z.string().optional().describe("Limit search to subtree (e.g., '/knowledge')"),
-      limit: z.number().optional().describe("Max results (default: 10)"),
-    }),
+    description: LTMSearchTool.definition.description,
+    parameters: LTMSearchTool.definition.parameters,
   })
 
-  // ltm_create - Create a new LTM entry
+  // LTM write tools (shared definitions)
   tools.ltm_create = tool({
-    description: `Create a new LTM entry. Use for new knowledge that should be retained long-term.
-
-IMPORTANT: Always use ltm_search first to check for existing related entries.
-Consider updating existing entries instead of creating duplicates.
-
-Example: ltm_create({
-  slug: "project-auth-patterns",
-  parentSlug: "knowledge",
-  title: "Authentication Patterns",
-  body: "OAuth2 flow used in this project. See also [[oauth-config]]."
-})`,
-    parameters: z.object({
-      slug: z.string().describe("Unique identifier for the entry (e.g., 'project-auth-patterns')"),
-      parentSlug: z.string().nullable().describe("Parent slug for hierarchy (null for root, 'knowledge' for general)"),
-      title: z.string().describe("Human-readable title"),
-      body: z.string().describe("Content with [[slug]] cross-links to related entries"),
-    }),
+    description: LTMCreateTool.definition.description,
+    parameters: LTMCreateTool.definition.parameters,
   })
 
-  // ltm_update - Update an existing LTM entry (full rewrite)
   tools.ltm_update = tool({
-    description: `Replace an entry's entire body. Use for major rewrites.
-For small changes, use ltm_edit instead (surgical find-replace).
-
-Example: ltm_update({
-  slug: "react-hooks",
-  newBody: "Updated content with new information...",
-  expectedVersion: 3
-})
-
-On version conflict: Error shows current version. Re-read and retry.`,
-    parameters: z.object({
-      slug: z.string().describe("The entry slug to update"),
-      newBody: z.string().describe("The new content to replace the existing body"),
-      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
-    }),
+    description: LTMUpdateTool.definition.description,
+    parameters: LTMUpdateTool.definition.parameters,
   })
 
-  // ltm_edit - Surgical find-replace (NEW)
   tools.ltm_edit = tool({
-    description: `Surgical find-replace within an entry. Use for precise edits.
-
-Requires EXACT match of oldText (must appear exactly once).
-For full rewrites, use ltm_update instead.
-
-Example: ltm_edit({
-  slug: "react-hooks",
-  oldText: "useState hook",
-  newText: "useState and useReducer hooks",
-  expectedVersion: 3
-})
-
-On version conflict: Error shows current version - re-read and retry.`,
-    parameters: z.object({
-      slug: z.string().describe("The entry slug to edit"),
-      oldText: z.string().describe("Exact text to find (must match exactly once)"),
-      newText: z.string().describe("Replacement text"),
-      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
-    }),
+    description: LTMEditTool.definition.description,
+    parameters: LTMEditTool.definition.parameters,
   })
 
-  // ltm_reparent - Move entry in tree (NEW)
   tools.ltm_reparent = tool({
-    description: `Move an entry to a new location in the tree. Use to:
-- Reorganize knowledge into better structure
-- Group related entries under a common parent
-
-Example: ltm_reparent({
-  slug: "oauth-flow",
-  newParentSlug: "auth-system",
-  expectedVersion: 2
-})
-
-Updates path for this entry and all descendants.`,
-    parameters: z.object({
-      slug: z.string().describe("The entry to move"),
-      newParentSlug: z.string().nullable().describe("New parent slug (null for root level)"),
-      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
-    }),
+    description: LTMReparentTool.definition.description,
+    parameters: LTMReparentTool.definition.parameters,
   })
 
-  // ltm_rename - Change entry slug (NEW)
   tools.ltm_rename = tool({
-    description: `Change an entry's slug. Use to:
-- Fix naming for clarity
-- Align with naming conventions
-
-Example: ltm_rename({
-  slug: "auth",
-  newSlug: "authentication",
-  expectedVersion: 1
-})
-
-Updates all paths. Children keep their relative position.`,
-    parameters: z.object({
-      slug: z.string().describe("Current slug of the entry"),
-      newSlug: z.string().describe("New slug to use"),
-      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
-    }),
+    description: LTMRenameTool.definition.description,
+    parameters: LTMRenameTool.definition.parameters,
   })
 
-  // ltm_archive - Archive an outdated LTM entry
   tools.ltm_archive = tool({
-    description: "Archive an LTM entry that is no longer relevant. Archived entries are soft-deleted and excluded from searches.",
-    parameters: z.object({
-      slug: z.string().describe("The entry slug to archive"),
-      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
-    }),
+    description: LTMArchiveTool.definition.description,
+    parameters: LTMArchiveTool.definition.parameters,
   })
 
-  // finish_consolidation - Signal completion
+  // finish_consolidation - Signal completion (consolidation-specific)
   tools.finish_consolidation = tool({
     description: "Call this when you have finished reviewing the conversation and updating LTM. Always call this to complete consolidation.",
     parameters: z.object({
@@ -276,83 +171,22 @@ Updates all paths. Children keep their relative position.`,
 }
 
 /**
- * Render entries as a compact indented tree.
- * Entries beyond displayDepth are collapsed with "(N items)" count.
- *
- * Example output for displayDepth=1:
- * /project-preferences (18 items)
- * /relevant-algorithms (12 items)
- *
- * Example output for displayDepth=2:
- * /project-preferences
- *   auth-patterns (3 items)
- *   code-style
- *   testing-conventions (5 items)
+ * Create an LTM tool context for consolidation.
  */
-function renderCompactTree(entries: LTMEntry[], displayDepth: number): string {
-  // Sort by path for consistent tree structure
-  const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path))
-
-  // Build a map of path -> entry and path -> children count
-  const pathToEntry = new Map<string, LTMEntry>()
-  const descendantCount = new Map<string, number>()
-
-  for (const entry of sorted) {
-    pathToEntry.set(entry.path, entry)
+function createLTMContext(storage: Storage): Tool.Context & { extra: LTMToolContext } {
+  const ctx = Tool.createContext({
+    sessionID: "consolidation",
+    messageID: "consolidation",
+  })
+  ;(ctx as Tool.Context & { extra: LTMToolContext }).extra = {
+    ltm: storage.ltm,
+    agentType: AGENT_TYPE,
   }
-
-  // Count descendants for each entry
-  for (const entry of sorted) {
-    // Walk up the path and increment ancestor counts
-    const parts = entry.path.split("/").filter(Boolean)
-    for (let i = 0; i < parts.length - 1; i++) {
-      const ancestorPath = "/" + parts.slice(0, i + 1).join("/")
-      descendantCount.set(ancestorPath, (descendantCount.get(ancestorPath) ?? 0) + 1)
-    }
-  }
-
-  // Render the tree
-  const lines: string[] = []
-  const rendered = new Set<string>()
-
-  for (const entry of sorted) {
-    const depth = entry.path.split("/").filter(Boolean).length
-
-    // Skip if beyond display depth
-    if (depth > displayDepth) {
-      continue
-    }
-
-    // Skip if already rendered (shouldn't happen with sorted entries)
-    if (rendered.has(entry.path)) {
-      continue
-    }
-    rendered.add(entry.path)
-
-    // Calculate indent (2 spaces per level, but root level has no indent)
-    const indent = "  ".repeat(depth - 1)
-    const slug = entry.slug
-
-    // Check if this entry has children beyond display depth
-    const childCount = descendantCount.get(entry.path) ?? 0
-
-    if (childCount > 0 && depth === displayDepth) {
-      // At display depth with hidden children - show count
-      lines.push(`${indent}${slug} (${childCount} items)`)
-    } else if (childCount > 0) {
-      // Has children that will be shown - no count
-      lines.push(`${indent}${slug}`)
-    } else {
-      // Leaf node
-      lines.push(`${indent}${slug}`)
-    }
-  }
-
-  return lines.join("\n")
+  return ctx as Tool.Context & { extra: LTMToolContext }
 }
 
 /**
- * Execute a consolidation tool call.
+ * Execute a consolidation tool call using shared tool implementations.
  */
 async function executeConsolidationTool(
   toolName: string,
@@ -360,223 +194,109 @@ async function executeConsolidationTool(
   storage: Storage,
   result: ConsolidationResult,
 ): Promise<{ output: string; done: boolean }> {
+  const ctx = createLTMContext(storage)
+
   switch (toolName) {
+    // Read-only tools - delegate to shared implementations
     case "ltm_read": {
-      const { slug } = args as { slug: string }
-      const entry = await storage.ltm.read(slug)
-      if (!entry) {
-        return { output: `Entry not found: ${slug}`, done: false }
-      }
-      return {
-        output: JSON.stringify({
-          slug: entry.slug,
-          title: entry.title,
-          body: entry.body,
-          path: entry.path,
-          version: entry.version,
-        }, null, 2),
-        done: false,
-      }
+      const toolResult = await LTMReadTool.definition.execute(
+        args as z.infer<typeof LTMReadTool.definition.parameters>,
+        ctx,
+      )
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_glob": {
-      const { pattern } = args as { pattern: string; maxDepth?: number }
-      try {
-        // Determine display depth from pattern:
-        // /* = show 1 level, /** = show all, /foo/* = show 1 level under /foo
-        const hasDoublestar = pattern.includes("**")
-        const patternDepth = pattern.split("/").filter(s => s && s !== "**" && s !== "*").length
-        const displayDepth = hasDoublestar ? Infinity : patternDepth + 1
-
-        // Fetch all entries (naïve glob gets everything under the path)
-        const entries = await storage.ltm.glob(pattern)
-
-        if (entries.length === 0) {
-          return { output: "(empty)", done: false }
-        }
-
-        // Build tree structure and render as compact text
-        const output = renderCompactTree(entries, displayDepth)
-        return { output, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        return { output: `Failed to glob: ${msg}`, done: false }
-      }
+      const toolResult = await LTMGlobTool.definition.execute(
+        args as z.infer<typeof LTMGlobTool.definition.parameters>,
+        ctx,
+      )
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_search": {
-      const { query, path, limit } = args as { query: string; path?: string; limit?: number }
-      try {
-        const results = await storage.ltm.search(query, path)
-        const limited = results.slice(0, limit ?? 10)
-        const formatted = limited.map(r => ({
-          slug: r.entry.slug,
-          title: r.entry.title,
-          path: r.entry.path,
-          snippet: r.entry.body.slice(0, 150) + (r.entry.body.length > 150 ? "..." : ""),
-        }))
-        return {
-          output: formatted.length > 0
-            ? JSON.stringify(formatted, null, 2)
-            : `No entries found matching "${query}"`,
-          done: false,
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        return { output: `Failed to search: ${msg}`, done: false }
-      }
+      const toolResult = await LTMSearchTool.definition.execute(
+        args as z.infer<typeof LTMSearchTool.definition.parameters>,
+        ctx,
+      )
+      return { output: toolResult.output, done: false }
     }
 
+    // Write tools - delegate to shared implementations and track results
     case "ltm_create": {
-      const { slug, parentSlug, title, body } = args as {
-        slug: string
-        parentSlug: string | null
-        title: string
-        body: string
-      }
-      try {
-        await storage.ltm.create({
-          slug,
-          parentSlug,
-          title,
-          body,
-          createdBy: AGENT_TYPE,
-        })
+      const toolResult = await LTMCreateTool.definition.execute(
+        args as z.infer<typeof LTMCreateTool.definition.parameters>,
+        ctx,
+      )
+      // Track success (shared tool returns "Created entry:" on success)
+      if (toolResult.output.startsWith("Created entry:")) {
         result.entriesCreated++
-        log.info("created LTM entry", { slug, parentSlug })
-        return { output: `Created entry: ${slug}`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        return { output: `Failed to create entry: ${msg}`, done: false }
+        log.info("created LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_update": {
-      const { slug, newBody, expectedVersion } = args as {
-        slug: string
-        newBody: string
-        expectedVersion: number
-      }
-      try {
-        await storage.ltm.update(slug, newBody, expectedVersion, AGENT_TYPE)
+      const toolResult = await LTMUpdateTool.definition.execute(
+        args as z.infer<typeof LTMUpdateTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Updated entry:")) {
         result.entriesUpdated++
-        log.info("updated LTM entry", { slug })
-        return { output: `Updated entry: ${slug} (now version ${expectedVersion + 1})`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        // Provide helpful CAS error message
-        if (msg.includes("CAS conflict")) {
-          const match = msg.match(/got (\d+)/)
-          const currentVersion = match ? match[1] : "unknown"
-          return {
-            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
-            done: false,
-          }
-        }
-        return { output: `Failed to update entry: ${msg}`, done: false }
+        log.info("updated LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_edit": {
-      const { slug, oldText, newText, expectedVersion } = args as {
-        slug: string
-        oldText: string
-        newText: string
-        expectedVersion: number
-      }
-      try {
-        await storage.ltm.edit(slug, oldText, newText, expectedVersion, AGENT_TYPE)
+      const toolResult = await LTMEditTool.definition.execute(
+        args as z.infer<typeof LTMEditTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Edited entry:")) {
         result.entriesUpdated++
-        log.info("edited LTM entry", { slug })
-        return { output: `Edited entry: ${slug} (now version ${expectedVersion + 1})`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        if (msg.includes("CAS conflict")) {
-          const match = msg.match(/got (\d+)/)
-          const currentVersion = match ? match[1] : "unknown"
-          return {
-            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
-            done: false,
-          }
-        }
-        return { output: `Failed to edit entry: ${msg}`, done: false }
+        log.info("edited LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_reparent": {
-      const { slug, newParentSlug, expectedVersion } = args as {
-        slug: string
-        newParentSlug: string | null
-        expectedVersion: number
-      }
-      try {
-        const updated = await storage.ltm.reparent(slug, newParentSlug, expectedVersion, AGENT_TYPE)
+      const toolResult = await LTMReparentTool.definition.execute(
+        args as z.infer<typeof LTMReparentTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Moved entry:")) {
         result.entriesUpdated++
-        log.info("reparented LTM entry", { slug, newParentSlug, newPath: updated.path })
-        return { output: `Moved entry: ${slug} to ${updated.path}`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        if (msg.includes("CAS conflict")) {
-          const match = msg.match(/got (\d+)/)
-          const currentVersion = match ? match[1] : "unknown"
-          return {
-            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
-            done: false,
-          }
-        }
-        return { output: `Failed to reparent entry: ${msg}`, done: false }
+        log.info("reparented LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_rename": {
-      const { slug, newSlug, expectedVersion } = args as {
-        slug: string
-        newSlug: string
-        expectedVersion: number
-      }
-      try {
-        const updated = await storage.ltm.rename(slug, newSlug, expectedVersion, AGENT_TYPE)
+      const toolResult = await LTMRenameTool.definition.execute(
+        args as z.infer<typeof LTMRenameTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Renamed entry:")) {
         result.entriesUpdated++
-        log.info("renamed LTM entry", { slug, newSlug, newPath: updated.path })
-        return { output: `Renamed entry: ${slug} → ${newSlug}`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        if (msg.includes("CAS conflict")) {
-          const match = msg.match(/got (\d+)/)
-          const currentVersion = match ? match[1] : "unknown"
-          return {
-            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
-            done: false,
-          }
-        }
-        return { output: `Failed to rename entry: ${msg}`, done: false }
+        log.info("renamed LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_archive": {
-      const { slug, expectedVersion } = args as {
-        slug: string
-        expectedVersion: number
-      }
-      try {
-        await storage.ltm.archive(slug, expectedVersion)
+      const toolResult = await LTMArchiveTool.definition.execute(
+        args as z.infer<typeof LTMArchiveTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Archived entry:")) {
         result.entriesArchived++
-        log.info("archived LTM entry", { slug })
-        return { output: `Archived entry: ${slug}`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        if (msg.includes("CAS conflict")) {
-          const match = msg.match(/got (\d+)/)
-          const currentVersion = match ? match[1] : "unknown"
-          return {
-            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
-            done: false,
-          }
-        }
-        return { output: `Failed to archive entry: ${msg}`, done: false }
+        log.info("archived LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
     }
 
+    // Consolidation-specific tool
     case "finish_consolidation": {
       const { summary } = args as { summary: string }
       result.summary = summary
@@ -734,7 +454,7 @@ export async function runConsolidation(
   const model = Provider.getModelForTier("workhorse")
 
   // Build tools
-  const tools = buildConsolidationTools(storage, result)
+  const tools = buildConsolidationTools()
 
   // Agent loop
   const agentMessages: CoreMessage[] = [
