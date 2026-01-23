@@ -98,13 +98,13 @@ function buildConsolidationTools(
 
   // ltm_create - Create a new LTM entry
   tools.ltm_create = tool({
-    description: "Create a new LTM entry. Use for new knowledge that should be retained long-term.",
+    description: "Create a new LTM entry. Use for new knowledge that should be retained long-term. Required: slug, parentSlug, title, body.",
     parameters: z.object({
-      slug: z.string().describe("Unique identifier for the entry (e.g., 'project-auth-patterns')"),
-      parentSlug: z.string().nullable().describe("Parent entry slug for hierarchy (null for root level, 'knowledge' for general knowledge)"),
-      title: z.string().describe("Human-readable title"),
-      body: z.string().describe("The knowledge content to store"),
-      tags: z.array(z.string()).optional().describe("Tags for searchability"),
+      slug: z.string().describe("Required. Unique identifier for the entry (e.g., 'project-auth-patterns')"),
+      parentSlug: z.string().nullable().describe("Required. Parent entry slug for hierarchy (null for root level, 'knowledge' for general knowledge)"),
+      title: z.string().describe("Required. Human-readable title"),
+      body: z.string().describe("Required. The knowledge content to store - this is the main content of the entry"),
+      tags: z.array(z.string()).optional().describe("Optional. Tags for searchability"),
     }),
   })
 
@@ -296,10 +296,15 @@ Your task: Review the conversation below and decide if any information should be
 
   prompt += `\n## Instructions
 1. Review the conversation for durable knowledge worth retaining
-2. Use ltm_read to check existing entries before updating
-3. Use ltm_create to add new knowledge, ltm_update to modify existing
-4. Be selective - only extract truly valuable, long-lasting information
-5. Call finish_consolidation when done (even if no changes were made)
+2. Use ltm_read(path) to check existing entries before updating
+3. Use ltm_create(slug, parentSlug, title, body) to add new knowledge - ALL fields are required:
+   - slug: unique identifier (e.g., "user-prefers-typescript")
+   - parentSlug: parent entry or null for root (use "knowledge" for general knowledge)
+   - title: human-readable title
+   - body: the actual knowledge content to store (REQUIRED - do not omit)
+4. Use ltm_update(slug, newBody, expectedVersion) to modify existing entries
+5. Be selective - only extract truly valuable, long-lasting information
+6. Call finish_consolidation(summary) when done (even if no changes were made)
 `
 
   return prompt
