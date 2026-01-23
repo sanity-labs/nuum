@@ -65,3 +65,12 @@ export {
 
 // Mock LLM for testing
 export { createMockLLM, type MockLLM, type MockLLMConfig, type MockSummaryOutput } from "./mock-llm"
+
+// Compaction agent
+export {
+  runCompaction,
+  runCompactionWorker,
+  createSummarizationLLM,
+  type CompactionResult,
+  type SummarizationLLM,
+} from "./compaction-agent"
