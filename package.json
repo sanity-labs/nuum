@@ -1,0 +1,34 @@
+{
+  "name": "miriad-code",
+  "version": "0.1.0",
+  "description": "Long-term execution coding agent with active memory management",
+  "type": "module",
+  "bin": {
+    "miriad-code": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "bun build ./src/cli/index.ts --outdir ./dist --target bun",
+    "dev": "bun run ./src/cli/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "ai": "^4.1.0",
+    "@ai-sdk/anthropic": "^1.1.0",
+    "drizzle-orm": "^0.38.0",
+    "ulid": "^2.3.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  },
+  "acknowledgments": {
+    "letta": "Memory architecture patterns - three-tier memory, agent-editable memory, sleeptime workers",
+    "opencode": "Tool system, shell execution, permission system infrastructure"
+  }
+}
