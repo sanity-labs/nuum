@@ -117,17 +117,21 @@ Returns: { slug, title, body, path, version } or "Entry not found"`,
 
   // ltm_glob - Browse tree structure (NEW)
   tools.ltm_glob = tool({
-    description: `Browse the LTM tree structure. Use this BEFORE creating entries to:
-- Find where related knowledge already exists
-- Understand the tree organization
-- Identify the right parent for new entries
+    description: `Browse the LTM tree structure as a compact indented tree.
 
-Example: ltm_glob({ pattern: "/knowledge/**" })
-Example: ltm_glob({ pattern: "/*", maxDepth: 1 })
-Returns: [{ slug, title, path, hasChildren }, ...]`,
+Use /* to see one level with collapsed counts:
+  project-prefs (18 items)
+  algorithms (12 items)
+
+Use /** to expand everything:
+  project-prefs
+    auth-patterns
+    code-style
+  algorithms
+    sorting
+    searching`,
     parameters: z.object({
-      pattern: z.string().describe("Glob pattern: '/**' (all), '/knowledge/**' (subtree), '/*' (root only)"),
-      maxDepth: z.number().optional().describe("Maximum tree depth to return"),
+      pattern: z.string().describe("Glob pattern: '/*' (root + counts), '/**' (expand all), '/foo/*' (under foo)"),
     }),
   })
 
@@ -272,6 +276,82 @@ Updates all paths. Children keep their relative position.`,
 }
 
 /**
+ * Render entries as a compact indented tree.
+ * Entries beyond displayDepth are collapsed with "(N items)" count.
+ *
+ * Example output for displayDepth=1:
+ * /project-preferences (18 items)
+ * /relevant-algorithms (12 items)
+ *
+ * Example output for displayDepth=2:
+ * /project-preferences
+ *   auth-patterns (3 items)
+ *   code-style
+ *   testing-conventions (5 items)
+ */
+function renderCompactTree(entries: LTMEntry[], displayDepth: number): string {
+  // Sort by path for consistent tree structure
+  const sorted = [...entries].sort((a, b) => a.path.localeCompare(b.path))
+
+  // Build a map of path -> entry and path -> children count
+  const pathToEntry = new Map<string, LTMEntry>()
+  const descendantCount = new Map<string, number>()
+
+  for (const entry of sorted) {
+    pathToEntry.set(entry.path, entry)
+  }
+
+  // Count descendants for each entry
+  for (const entry of sorted) {
+    // Walk up the path and increment ancestor counts
+    const parts = entry.path.split("/").filter(Boolean)
+    for (let i = 0; i < parts.length - 1; i++) {
+      const ancestorPath = "/" + parts.slice(0, i + 1).join("/")
+      descendantCount.set(ancestorPath, (descendantCount.get(ancestorPath) ?? 0) + 1)
+    }
+  }
+
+  // Render the tree
+  const lines: string[] = []
+  const rendered = new Set<string>()
+
+  for (const entry of sorted) {
+    const depth = entry.path.split("/").filter(Boolean).length
+
+    // Skip if beyond display depth
+    if (depth > displayDepth) {
+      continue
+    }
+
+    // Skip if already rendered (shouldn't happen with sorted entries)
+    if (rendered.has(entry.path)) {
+      continue
+    }
+    rendered.add(entry.path)
+
+    // Calculate indent (2 spaces per level, but root level has no indent)
+    const indent = "  ".repeat(depth - 1)
+    const slug = entry.slug
+
+    // Check if this entry has children beyond display depth
+    const childCount = descendantCount.get(entry.path) ?? 0
+
+    if (childCount > 0 && depth === displayDepth) {
+      // At display depth with hidden children - show count
+      lines.push(`${indent}${slug} (${childCount} items)`)
+    } else if (childCount > 0) {
+      // Has children that will be shown - no count
+      lines.push(`${indent}${slug}`)
+    } else {
+      // Leaf node
+      lines.push(`${indent}${slug}`)
+    }
+  }
+
+  return lines.join("\n")
+}
+
+/**
  * Execute a consolidation tool call.
  */
 async function executeConsolidationTool(
@@ -300,22 +380,24 @@ async function executeConsolidationTool(
     }
 
     case "ltm_glob": {
-      const { pattern, maxDepth } = args as { pattern: string; maxDepth?: number }
+      const { pattern } = args as { pattern: string; maxDepth?: number }
       try {
-        const entries = await storage.ltm.glob(pattern, maxDepth)
-        const children = await Promise.all(entries.map(async e => {
-          const kids = await storage.ltm.getChildren(e.slug)
-          return {
-            slug: e.slug,
-            title: e.title,
-            path: e.path,
-            hasChildren: kids.length > 0,
-          }
-        }))
-        return {
-          output: JSON.stringify(children, null, 2),
-          done: false,
+        // Determine display depth from pattern:
+        // /* = show 1 level, /** = show all, /foo/* = show 1 level under /foo
+        const hasDoublestar = pattern.includes("**")
+        const patternDepth = pattern.split("/").filter(s => s && s !== "**" && s !== "*").length
+        const displayDepth = hasDoublestar ? Infinity : patternDepth + 1
+
+        // Fetch all entries (naïve glob gets everything under the path)
+        const entries = await storage.ltm.glob(pattern)
+
+        if (entries.length === 0) {
+          return { output: "(empty)", done: false }
         }
+
+        // Build tree structure and render as compact text
+        const output = renderCompactTree(entries, displayDepth)
+        return { output, done: false }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         return { output: `Failed to glob: ${msg}`, done: false }
