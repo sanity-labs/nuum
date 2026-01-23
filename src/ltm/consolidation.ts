@@ -45,8 +45,10 @@ import {
   LTMReparentTool,
   LTMRenameTool,
   LTMArchiveTool,
+  renderCompactTree,
   type LTMToolContext,
 } from "../tool"
+import { buildSystemPrompt } from "../agent"
 
 const log = Log.create({ service: "consolidation-agent" })
 
@@ -309,106 +311,76 @@ async function executeConsolidationTool(
 }
 
 /**
- * Build the consolidation prompt.
+ * Build the LTM review turn content.
+ * This is added as a user message to continue the main agent's conversation.
  */
-function buildConsolidationPrompt(
-  messages: TemporalMessage[],
-  currentLTM: { identity: LTMEntry | null; behavior: LTMEntry | null; knowledge: LTMEntry[] },
-): string {
-  let prompt = `You are reviewing a conversation to extract durable knowledge for long-term memory.
+async function buildLTMReviewTurn(
+  storage: Storage,
+  recentlyUpdatedEntries: LTMEntry[],
+): Promise<string> {
+  // Get the full LTM tree (3 levels deep)
+  const allEntries = await storage.ltm.glob("/**")
+  const treeView = renderCompactTree(allEntries, 3)
 
-Your task: Review the conversation below and decide if any information should be saved to LTM.
+  let content = `## Long-Term Memory Review
 
-## What to Extract
-- User preferences and working style
-- Project-specific patterns and conventions
-- Technical decisions and their rationale
-- Important facts about the codebase or workflow
-- Corrections to existing knowledge
+It's time to review your long-term memory. Take a moment to consider whether there are insights, observations, or facts from the recent conversation that should be captured.
 
-## What NOT to Extract
-- Transient task details (these go in temporal memory)
-- Obvious or trivial information
-- Speculative or uncertain information
+### Current Memory Inventory
 
-## Current LTM State
+${treeView || "(empty)"}
 `
 
-  // Add identity
-  if (currentLTM.identity) {
-    prompt += `\n### /identity\n${currentLTM.identity.body}\n`
-  } else {
-    prompt += `\n### /identity\n(not set)\n`
-  }
+  // Add recently updated entries if any
+  if (recentlyUpdatedEntries.length > 0) {
+    content += `
+### Recently Updated Memories
 
-  // Add behavior
-  if (currentLTM.behavior) {
-    prompt += `\n### /behavior\n${currentLTM.behavior.body}\n`
-  } else {
-    prompt += `\n### /behavior\n(not set)\n`
-  }
-
-  // Add knowledge entries
-  if (currentLTM.knowledge.length > 0) {
-    prompt += `\n### /knowledge entries\n`
-    for (const entry of currentLTM.knowledge) {
-      prompt += `- ${entry.slug}: ${entry.title}\n`
+The following entries were recently modified:
+`
+    for (const entry of recentlyUpdatedEntries) {
+      content += `- **${entry.slug}**: ${entry.title}\n`
     }
   }
 
-  prompt += `\n## Conversation to Review\n`
+  content += `
+### Memory Guidelines
 
-  // Add messages
-  for (const msg of messages) {
-    const prefix = msg.type === "user" ? "User" : msg.type === "assistant" ? "Assistant" : `[${msg.type}]`
-    // Truncate very long messages
-    const content = msg.content.length > 2000 ? msg.content.slice(0, 2000) + "... [truncated]" : msg.content
-    prompt += `\n${prefix}: ${content}\n`
-  }
+A good memory entry is:
+- **Compact**: Optimized for recall, not explanation. You are the only audience.
+- **Factual**: Captures specific facts, decisions, patterns, or preferences.
+- **Actionable**: Information you need to perform tasks better over time.
 
-  prompt += `\n## Your Role: Knowledge Curator
+Your long-term memory is YOUR resource - a knowledge base you build to learn and improve precision over time.
 
-Your job is to maintain the knowledge base as a SHARP tool, not a garbage pile.
+### What to Capture
+- User preferences and working patterns
+- Project-specific conventions and decisions
+- Technical facts about the codebase
+- Corrections to your existing knowledge
 
-### Before Creating Entries
-1. Use ltm_search() to check if related knowledge exists - avoid duplicates!
-2. Use ltm_glob() to understand the tree structure and find the right location
-3. Decide: create new, update existing, or merge?
-
-### When Curating
-- Merge overlapping entries rather than creating duplicates
-- Use ltm_reparent() to organize entries logically
-- Use ltm_rename() to fix unclear slugs
-- Keep entries focused and specific
-- Use [[slug]] syntax to cross-link related entries
-
-### Cross-Linking Convention
-Use [[slug]] in entry bodies to reference other knowledge entries.
-Example: "This builds on [[auth-patterns]] and relates to [[oauth-flow]]"
-Cross-links help navigate connected knowledge.
-
-### What to Extract
-- User preferences and working style
-- Project-specific patterns and conventions
-- Technical decisions and their rationale
-- Important facts about the codebase or workflow
-- Corrections to existing knowledge
-
-### What NOT to Extract
-- Transient task details (these go in temporal memory)
+### What NOT to Capture
+- Transient task details (these stay in conversation history)
 - Obvious or trivial information
 - Speculative or uncertain information
 
-### Workflow
-1. Review the conversation for durable knowledge
-2. Search for existing related entries
-3. Update or create entries as needed
-4. Call finish_consolidation when done (even if no changes were made)
+### Tools Available
+- **ltm_glob(pattern)** - Browse the tree structure
+- **ltm_search(query)** - Find related entries (always search before creating!)
+- **ltm_read(slug)** - Read an entry's full content
+- **ltm_create(...)** - Create a new entry
+- **ltm_update(...)** - Replace an entry's content
+- **ltm_edit(...)** - Surgical find-replace
+- **ltm_reparent(...)** - Move entry to new parent
+- **ltm_rename(...)** - Change entry slug
+- **ltm_archive(...)** - Remove outdated entries
 
-The knowledge base should get SHARPER over time, not just bigger.
+Use [[slug]] syntax in entry bodies to cross-link related knowledge.
+
+When you're done reviewing (even if no changes needed), call **finish_consolidation** with a brief summary.
 `
 
-  return prompt
+  return content
 }
 
 /**
@@ -441,14 +413,18 @@ export async function runConsolidation(
   result.ran = true
   log.info("starting consolidation", { messageCount: messages.length })
 
-  // Get current LTM state for context
-  const identity = await storage.ltm.read("identity")
-  const behavior = await storage.ltm.read("behavior")
-  const allEntries = await storage.ltm.glob("/**")
-  const knowledge = allEntries.filter(e => e.slug !== "identity" && e.slug !== "behavior")
+  // Use the main agent's system prompt for prompt caching benefits
+  const { prompt: systemPrompt } = await buildSystemPrompt(storage)
 
-  // Build the consolidation prompt
-  const systemPrompt = buildConsolidationPrompt(messages, { identity, behavior, knowledge })
+  // Find recently updated entries (updated in the last hour)
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const allEntries = await storage.ltm.glob("/**")
+  const recentlyUpdated = allEntries.filter(
+    (e) => e.updatedAt > oneHourAgo && e.slug !== "identity" && e.slug !== "behavior",
+  )
+
+  // Build the LTM review turn content
+  const reviewTurnContent = await buildLTMReviewTurn(storage, recentlyUpdated)
 
   // Get model (use workhorse tier for consolidation - Haiku is unreliable with tool schemas)
   const model = Provider.getModelForTier("workhorse")
@@ -456,9 +432,9 @@ export async function runConsolidation(
   // Build tools
   const tools = buildConsolidationTools()
 
-  // Agent loop
+  // Agent loop - starts with the LTM review turn as if continuing the main conversation
   const agentMessages: CoreMessage[] = [
-    { role: "user", content: "Review this conversation and extract any durable knowledge to LTM." },
+    { role: "user", content: reviewTurnContent },
   ]
 
   for (let turn = 0; turn < MAX_CONSOLIDATION_TURNS; turn++) {

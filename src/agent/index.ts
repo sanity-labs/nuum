@@ -89,8 +89,9 @@ function estimateTokens(text: string): number {
 /**
  * Build the system prompt including memory state.
  * Uses temporal view with summaries for efficient context usage.
+ * Exported so background agents (consolidation, etc.) can reuse it for prompt caching.
  */
-async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; tokens: number }> {
+export async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; tokens: number }> {
   // Get identity and behavior from LTM
   const identity = await storage.ltm.read("identity")
   const behavior = await storage.ltm.read("behavior")
