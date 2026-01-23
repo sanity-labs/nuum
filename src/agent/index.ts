@@ -31,8 +31,10 @@ import {
   shouldTriggerCompaction,
   runCompactionWorker,
   createSummarizationLLM,
+  getMessagesToCompact,
   type CompactionResult,
 } from "../temporal"
+import { runConsolidationWorker, type ConsolidationResult } from "../ltm"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "agent" })
@@ -48,10 +50,11 @@ export interface AgentOptions {
 }
 
 export interface AgentEvent {
-  type: "user" | "assistant" | "tool_call" | "tool_result" | "error" | "done" | "compaction"
+  type: "user" | "assistant" | "tool_call" | "tool_result" | "error" | "done" | "consolidation" | "compaction"
   content: string
   toolName?: string
   toolCallId?: string
+  consolidationResult?: ConsolidationResult
   compactionResult?: CompactionResult
 }
 
@@ -515,6 +518,8 @@ export async function runAgent(
 
 /**
  * Check if compaction should be triggered and run it if needed.
+ * Runs LTM consolidation BEFORE compaction to extract durable knowledge
+ * while raw messages are still available.
  */
 async function maybeRunCompaction(
   storage: Storage,
@@ -540,6 +545,41 @@ async function maybeRunCompaction(
     target: config.tokenBudgets.compactionTarget,
   })
 
+  // Phase 1: Run LTM consolidation BEFORE compaction
+  // Extract durable knowledge from raw messages while they're still available
+  try {
+    const { messages } = await getMessagesToCompact(storage.temporal)
+    if (messages.length > 0) {
+      log.info("running LTM consolidation before compaction", { messageCount: messages.length })
+
+      const consolidationResult = await runConsolidationWorker(storage, messages)
+
+      if (consolidationResult.ran) {
+        log.info("consolidation complete", {
+          entriesCreated: consolidationResult.entriesCreated,
+          entriesUpdated: consolidationResult.entriesUpdated,
+          entriesArchived: consolidationResult.entriesArchived,
+        })
+
+        onEvent?.({
+          type: "consolidation",
+          content: consolidationResult.summary || "LTM consolidation complete",
+          consolidationResult,
+        })
+      } else {
+        log.info("consolidation skipped", { reason: consolidationResult.summary })
+      }
+    }
+  } catch (error) {
+    // Consolidation failure is non-fatal - continue with compaction
+    log.error("consolidation failed, continuing with compaction", { error })
+    onEvent?.({
+      type: "error",
+      content: `Consolidation failed: ${error instanceof Error ? error.message : String(error)}`,
+    })
+  }
+
+  // Phase 2: Run compaction (lossy summarization)
   try {
     const llm = createSummarizationLLM()
     const result = await runCompactionWorker(

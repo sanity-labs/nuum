@@ -228,6 +228,19 @@ export class JsonRpcServer {
           }),
         )
         break
+      case "consolidation":
+        if (event.consolidationResult?.ran) {
+          this.send(
+            createResponse(requestId, {
+              type: "consolidation",
+              entriesCreated: event.consolidationResult.entriesCreated,
+              entriesUpdated: event.consolidationResult.entriesUpdated,
+              entriesArchived: event.consolidationResult.entriesArchived,
+              summary: event.consolidationResult.summary,
+            }),
+          )
+        }
+        break
       // Ignore 'user', 'done', 'compaction' events for JSON-RPC output
     }
   }

@@ -274,6 +274,18 @@ export class ReplSession {
         markOutput()
         break
 
+      case "consolidation":
+        // Show consolidation as subtle indicator
+        if (event.consolidationResult?.ran) {
+          const r = event.consolidationResult
+          const changes = r.entriesCreated + r.entriesUpdated + r.entriesArchived
+          if (changes > 0) {
+            process.stdout.write(`\n[LTM updated: ${changes} change(s)]\n`)
+          }
+        }
+        markOutput()
+        break
+
       case "compaction":
         // Show compaction as subtle indicator
         process.stdout.write(`\n[Memory compacted]\n`)
