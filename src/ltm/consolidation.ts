@@ -349,8 +349,8 @@ export async function runConsolidation(
   // Build the consolidation prompt
   const systemPrompt = buildConsolidationPrompt(messages, { identity, behavior, knowledge })
 
-  // Get model (use fast tier for consolidation)
-  const model = Provider.getModelForTier("fast")
+  // Get model (use workhorse tier for consolidation - Haiku is unreliable with tool schemas)
+  const model = Provider.getModelForTier("workhorse")
 
   // Build tools
   const tools = buildConsolidationTools(storage, result)
