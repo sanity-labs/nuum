@@ -4,11 +4,24 @@
  * Extracts durable knowledge from raw conversation messages into long-term memory.
  * Runs BEFORE compaction, while full details are still available in temporal memory.
  *
- * This is a mini-agent with limited tools focused on LTM operations:
- * - ltm_read: Read existing LTM entries
+ * This is a mini-agent (the "LTM Manager") with tools for knowledge curation:
+ *
+ * Navigation & Search:
+ * - ltm_read: Read a specific entry
+ * - ltm_glob: Browse tree structure
+ * - ltm_search: Find related entries
+ *
+ * Creation & Modification:
  * - ltm_create: Create new knowledge entries
- * - ltm_update: Update existing entries (with CAS)
- * - ltm_archive: Archive outdated entries
+ * - ltm_update: Full rewrite of entry body (CAS)
+ * - ltm_edit: Surgical find-replace (CAS)
+ *
+ * Organization:
+ * - ltm_reparent: Move entry to new parent
+ * - ltm_rename: Change entry slug
+ * - ltm_archive: Soft-delete outdated entries
+ *
+ * Workflow:
  * - finish_consolidation: Signal completion
  */
 
@@ -90,40 +103,125 @@ function buildConsolidationTools(
 
   // ltm_read - Read an LTM entry
   tools.ltm_read = tool({
-    description: "Read an LTM entry by path (slug). Returns the entry content or null if not found.",
+    description: "Read an LTM entry by slug. Returns entry content, version, and path.\n\nUse AFTER ltm_search finds relevant results, or when you know the exact slug.\nThe version is needed for CAS operations (edit, update, reparent, rename).\n\nReturns: {slug, title, body, path, version} or 'Entry not found'",
     parameters: z.object({
-      path: z.string().describe("The entry path/slug to read (e.g., 'identity', 'knowledge/preferences')"),
+      slug: z.string().describe("The entry slug to read (e.g., 'identity', 'react-hooks')"),
+    }),
+  })
+
+  // ltm_glob - Browse tree structure (NEW)
+  tools.ltm_glob = tool({
+    description: `Browse the LTM tree structure. Use this BEFORE creating entries to:
+- Find where related knowledge already exists
+- Understand the tree organization
+- Identify the right parent for new entries
+
+Pattern examples:
+- "/**" - all entries
+- "/knowledge/**" - everything under knowledge
+- "/*" - root level only (maxDepth: 1)
+
+Returns: Array of {slug, title, path, hasChildren}`,
+    parameters: z.object({
+      pattern: z.string().describe("Glob pattern (e.g., '/**', '/knowledge/*')"),
+      maxDepth: z.number().optional().describe("Maximum tree depth to return"),
+    }),
+  })
+
+  // ltm_search - Search for related entries (NEW)
+  tools.ltm_search = tool({
+    description: `Search LTM by keyword. Use BEFORE creating new entries to:
+- Find related entries (avoid duplicates!)
+- Find entries to update or merge
+- Discover existing knowledge on a topic
+
+Returns: Array of {slug, title, path, snippet} ranked by relevance`,
+    parameters: z.object({
+      query: z.string().describe("Search keywords"),
+      path: z.string().optional().describe("Limit search to subtree (e.g., '/knowledge')"),
+      limit: z.number().optional().describe("Max results (default: 10)"),
     }),
   })
 
   // ltm_create - Create a new LTM entry
   tools.ltm_create = tool({
-    description: "Create a new LTM entry. Use for new knowledge that should be retained long-term. Required: slug, parentSlug, title, body.",
+    description: `Create a new LTM entry. Use for new knowledge that should be retained long-term.
+
+IMPORTANT: Always use ltm_search first to check for existing related entries.
+Consider updating existing entries instead of creating duplicates.
+
+Use [[slug]] syntax in body to cross-link related entries.`,
     parameters: z.object({
-      slug: z.string().describe("Required. Unique identifier for the entry (e.g., 'project-auth-patterns')"),
-      parentSlug: z.string().nullable().describe("Required. Parent entry slug for hierarchy (null for root level, 'knowledge' for general knowledge)"),
-      title: z.string().describe("Required. Human-readable title"),
-      body: z.string().describe("Required. The knowledge content to store - this is the main content of the entry"),
-      tags: z.array(z.string()).optional().describe("Optional. Tags for searchability"),
+      slug: z.string().describe("Unique identifier for the entry (e.g., 'project-auth-patterns')"),
+      parentSlug: z.string().nullable().describe("Parent entry slug for hierarchy (null for root level, 'knowledge' for general knowledge)"),
+      title: z.string().describe("Human-readable title"),
+      body: z.string().describe("The knowledge content. Use [[slug]] to link to other entries."),
     }),
   })
 
-  // ltm_update - Update an existing LTM entry
+  // ltm_update - Update an existing LTM entry (full rewrite)
   tools.ltm_update = tool({
-    description: "Update an existing LTM entry. Uses compare-and-swap to prevent conflicts.",
+    description: `Replace an entry's entire body. Use for major rewrites.
+For small changes, use ltm_edit instead (surgical find-replace).
+
+On version conflict: Error shows current version. Re-read and retry.`,
     parameters: z.object({
       slug: z.string().describe("The entry slug to update"),
       newBody: z.string().describe("The new content to replace the existing body"),
-      expectedVersion: z.number().describe("Expected current version (for CAS). Get this from ltm_read."),
+      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
+    }),
+  })
+
+  // ltm_edit - Surgical find-replace (NEW)
+  tools.ltm_edit = tool({
+    description: `Surgical find-replace within an entry. Use for precise edits.
+
+Requires EXACT match of oldText (must appear exactly once).
+For full rewrites, use ltm_update instead.
+
+On version conflict: Error shows current version - re-read and retry.`,
+    parameters: z.object({
+      slug: z.string().describe("The entry slug to edit"),
+      oldText: z.string().describe("Exact text to find (must match exactly once)"),
+      newText: z.string().describe("Replacement text"),
+      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
+    }),
+  })
+
+  // ltm_reparent - Move entry in tree (NEW)
+  tools.ltm_reparent = tool({
+    description: `Move an entry to a new location in the tree. Use to:
+- Reorganize knowledge into better structure
+- Group related entries under a common parent
+
+Updates path for this entry and all descendants.`,
+    parameters: z.object({
+      slug: z.string().describe("The entry to move"),
+      newParentSlug: z.string().nullable().describe("New parent slug (null for root level)"),
+      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
+    }),
+  })
+
+  // ltm_rename - Change entry slug (NEW)
+  tools.ltm_rename = tool({
+    description: `Change an entry's slug. Use to:
+- Fix naming for clarity
+- Align with naming conventions
+
+Updates all paths. Children keep their relative position.`,
+    parameters: z.object({
+      slug: z.string().describe("Current slug of the entry"),
+      newSlug: z.string().describe("New slug to use"),
+      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
     }),
   })
 
   // ltm_archive - Archive an outdated LTM entry
   tools.ltm_archive = tool({
-    description: "Archive an LTM entry that is no longer relevant. Archived entries are soft-deleted.",
+    description: "Archive an LTM entry that is no longer relevant. Archived entries are soft-deleted and excluded from searches.",
     parameters: z.object({
       slug: z.string().describe("The entry slug to archive"),
-      expectedVersion: z.number().describe("Expected current version (for CAS). Get this from ltm_read."),
+      expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
     }),
   })
 
@@ -149,30 +247,75 @@ async function executeConsolidationTool(
 ): Promise<{ output: string; done: boolean }> {
   switch (toolName) {
     case "ltm_read": {
-      const { path } = args as { path: string }
-      const entry = await storage.ltm.read(path)
+      const { slug } = args as { slug: string }
+      const entry = await storage.ltm.read(slug)
       if (!entry) {
-        return { output: `Entry not found: ${path}`, done: false }
+        return { output: `Entry not found: ${slug}`, done: false }
       }
       return {
         output: JSON.stringify({
           slug: entry.slug,
           title: entry.title,
           body: entry.body,
+          path: entry.path,
           version: entry.version,
-          tags: JSON.parse(entry.tags),
         }, null, 2),
         done: false,
       }
     }
 
+    case "ltm_glob": {
+      const { pattern, maxDepth } = args as { pattern: string; maxDepth?: number }
+      try {
+        const entries = await storage.ltm.glob(pattern, maxDepth)
+        const children = await Promise.all(entries.map(async e => {
+          const kids = await storage.ltm.getChildren(e.slug)
+          return {
+            slug: e.slug,
+            title: e.title,
+            path: e.path,
+            hasChildren: kids.length > 0,
+          }
+        }))
+        return {
+          output: JSON.stringify(children, null, 2),
+          done: false,
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { output: `Failed to glob: ${msg}`, done: false }
+      }
+    }
+
+    case "ltm_search": {
+      const { query, path, limit } = args as { query: string; path?: string; limit?: number }
+      try {
+        const results = await storage.ltm.search(query, path)
+        const limited = results.slice(0, limit ?? 10)
+        const formatted = limited.map(r => ({
+          slug: r.entry.slug,
+          title: r.entry.title,
+          path: r.entry.path,
+          snippet: r.entry.body.slice(0, 150) + (r.entry.body.length > 150 ? "..." : ""),
+        }))
+        return {
+          output: formatted.length > 0
+            ? JSON.stringify(formatted, null, 2)
+            : `No entries found matching "${query}"`,
+          done: false,
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { output: `Failed to search: ${msg}`, done: false }
+      }
+    }
+
     case "ltm_create": {
-      const { slug, parentSlug, title, body, tags } = args as {
+      const { slug, parentSlug, title, body } = args as {
         slug: string
         parentSlug: string | null
         title: string
         body: string
-        tags?: string[]
       }
       try {
         await storage.ltm.create({
@@ -180,7 +323,6 @@ async function executeConsolidationTool(
           parentSlug,
           title,
           body,
-          tags,
           createdBy: AGENT_TYPE,
         })
         result.entriesCreated++
@@ -202,10 +344,95 @@ async function executeConsolidationTool(
         await storage.ltm.update(slug, newBody, expectedVersion, AGENT_TYPE)
         result.entriesUpdated++
         log.info("updated LTM entry", { slug })
-        return { output: `Updated entry: ${slug}`, done: false }
+        return { output: `Updated entry: ${slug} (now version ${expectedVersion + 1})`, done: false }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
+        // Provide helpful CAS error message
+        if (msg.includes("CAS conflict")) {
+          const match = msg.match(/got (\d+)/)
+          const currentVersion = match ? match[1] : "unknown"
+          return {
+            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
+            done: false,
+          }
+        }
         return { output: `Failed to update entry: ${msg}`, done: false }
+      }
+    }
+
+    case "ltm_edit": {
+      const { slug, oldText, newText, expectedVersion } = args as {
+        slug: string
+        oldText: string
+        newText: string
+        expectedVersion: number
+      }
+      try {
+        await storage.ltm.edit(slug, oldText, newText, expectedVersion, AGENT_TYPE)
+        result.entriesUpdated++
+        log.info("edited LTM entry", { slug })
+        return { output: `Edited entry: ${slug} (now version ${expectedVersion + 1})`, done: false }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (msg.includes("CAS conflict")) {
+          const match = msg.match(/got (\d+)/)
+          const currentVersion = match ? match[1] : "unknown"
+          return {
+            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
+            done: false,
+          }
+        }
+        return { output: `Failed to edit entry: ${msg}`, done: false }
+      }
+    }
+
+    case "ltm_reparent": {
+      const { slug, newParentSlug, expectedVersion } = args as {
+        slug: string
+        newParentSlug: string | null
+        expectedVersion: number
+      }
+      try {
+        const updated = await storage.ltm.reparent(slug, newParentSlug, expectedVersion, AGENT_TYPE)
+        result.entriesUpdated++
+        log.info("reparented LTM entry", { slug, newParentSlug, newPath: updated.path })
+        return { output: `Moved entry: ${slug} to ${updated.path}`, done: false }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (msg.includes("CAS conflict")) {
+          const match = msg.match(/got (\d+)/)
+          const currentVersion = match ? match[1] : "unknown"
+          return {
+            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
+            done: false,
+          }
+        }
+        return { output: `Failed to reparent entry: ${msg}`, done: false }
+      }
+    }
+
+    case "ltm_rename": {
+      const { slug, newSlug, expectedVersion } = args as {
+        slug: string
+        newSlug: string
+        expectedVersion: number
+      }
+      try {
+        const updated = await storage.ltm.rename(slug, newSlug, expectedVersion, AGENT_TYPE)
+        result.entriesUpdated++
+        log.info("renamed LTM entry", { slug, newSlug, newPath: updated.path })
+        return { output: `Renamed entry: ${slug} → ${newSlug}`, done: false }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (msg.includes("CAS conflict")) {
+          const match = msg.match(/got (\d+)/)
+          const currentVersion = match ? match[1] : "unknown"
+          return {
+            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
+            done: false,
+          }
+        }
+        return { output: `Failed to rename entry: ${msg}`, done: false }
       }
     }
 
@@ -221,6 +448,14 @@ async function executeConsolidationTool(
         return { output: `Archived entry: ${slug}`, done: false }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
+        if (msg.includes("CAS conflict")) {
+          const match = msg.match(/got (\d+)/)
+          const currentVersion = match ? match[1] : "unknown"
+          return {
+            output: `Version conflict: expected ${expectedVersion}, current is ${currentVersion}. Re-read with ltm_read("${slug}") and retry with the current version.`,
+            done: false,
+          }
+        }
         return { output: `Failed to archive entry: ${msg}`, done: false }
       }
     }
@@ -294,15 +529,46 @@ Your task: Review the conversation below and decide if any information should be
     prompt += `\n${prefix}: ${content}\n`
   }
 
-  prompt += `\n## Instructions
-1. Review the conversation for durable knowledge worth retaining
-2. Use ltm_read(path) to check existing entries before updating
-3. Use ltm_create to add new knowledge. Example:
-   ltm_create({"slug": "user-prefers-typescript", "parentSlug": "knowledge", "title": "User Prefers TypeScript", "body": "The user prefers TypeScript over JavaScript for all new projects."})
-   ALL fields including "body" are REQUIRED.
-4. Use ltm_update(slug, newBody, expectedVersion) to modify existing entries
-5. Be selective - only extract truly valuable, long-lasting information
-6. Call finish_consolidation(summary) when done (even if no changes were made)
+  prompt += `\n## Your Role: Knowledge Curator
+
+Your job is to maintain the knowledge base as a SHARP tool, not a garbage pile.
+
+### Before Creating Entries
+1. Use ltm_search() to check if related knowledge exists - avoid duplicates!
+2. Use ltm_glob() to understand the tree structure and find the right location
+3. Decide: create new, update existing, or merge?
+
+### When Curating
+- Merge overlapping entries rather than creating duplicates
+- Use ltm_reparent() to organize entries logically
+- Use ltm_rename() to fix unclear slugs
+- Keep entries focused and specific
+- Use [[slug]] syntax to cross-link related entries
+
+### Cross-Linking Convention
+Use [[slug]] in entry bodies to reference other knowledge entries.
+Example: "This builds on [[auth-patterns]] and relates to [[oauth-flow]]"
+Cross-links help navigate connected knowledge.
+
+### What to Extract
+- User preferences and working style
+- Project-specific patterns and conventions
+- Technical decisions and their rationale
+- Important facts about the codebase or workflow
+- Corrections to existing knowledge
+
+### What NOT to Extract
+- Transient task details (these go in temporal memory)
+- Obvious or trivial information
+- Speculative or uncertain information
+
+### Workflow
+1. Review the conversation for durable knowledge
+2. Search for existing related entries
+3. Update or create entries as needed
+4. Call finish_consolidation when done (even if no changes were made)
+
+The knowledge base should get SHARPER over time, not just bigger.
 `
 
   return prompt

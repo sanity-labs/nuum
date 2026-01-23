@@ -141,7 +141,6 @@ My memory spans across conversations, allowing me to:
 - Maintain context about the codebase we're working on
 
 Update this entry to customize who I am.`,
-      tags: ["system"],
       createdBy: "main",
     })
   }
@@ -164,7 +163,6 @@ Guidelines for how I should operate:
 - Keep commits atomic and well-described
 
 Update this entry to customize how I behave.`,
-      tags: ["system"],
       createdBy: "main",
     })
   }

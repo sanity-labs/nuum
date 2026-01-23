@@ -156,6 +156,20 @@ ${renderTemporalView(temporalView)}
 Use tools to accomplish tasks. Always explain what you're doing.
 
 When you're done with a task, update the present state if appropriate.
+
+## Long-Term Memory
+
+You have a knowledge base managed by a background process. It extracts important information from conversations and maintains organized knowledge.
+
+To recall information:
+- ltm_glob(pattern) - browse the knowledge tree structure
+- ltm_search(query) - find relevant entries
+- ltm_read(slug) - read a specific entry
+
+Knowledge entries may contain [[slug]] cross-references to related entries. Follow these links to explore connected knowledge.
+
+You do NOT manage this memory directly. Focus on your work - memory happens automatically.
+Your /identity and /behavior entries are always visible to guide you.
 `
 
   return { prompt, tokens: estimateTokens(prompt) }
@@ -232,6 +246,53 @@ function buildTools(): Record<string, CoreTool> {
     }),
   })
 
+  // LTM retrieval tools (read-only access to knowledge base)
+  tools.ltm_glob = tool({
+    description: `Browse the knowledge base tree structure. Use to:
+- See what knowledge is available
+- Understand the organization
+- Find related topics to explore
+
+Pattern examples:
+- "/**" - all entries
+- "/knowledge/**" - everything under knowledge
+- "/*" - root level only (with maxDepth: 1)
+
+Returns: Array of {slug, title, path, hasChildren}`,
+    parameters: z.object({
+      pattern: z.string().describe("Glob pattern (e.g., '/**', '/knowledge/*')"),
+      maxDepth: z.number().optional().describe("Maximum tree depth to return"),
+    }),
+  })
+
+  tools.ltm_search = tool({
+    description: `Search your knowledge base. Use when you need to recall:
+- Information from past work
+- User preferences or project details
+- Technical knowledge you've stored
+
+You don't manage this knowledge - a background process curates it.
+Knowledge entries may contain [[slug]] cross-references.
+
+Returns: Array of {slug, title, path, snippet} ranked by relevance`,
+    parameters: z.object({
+      query: z.string().describe("Search keywords"),
+      path: z.string().optional().describe("Limit search to subtree (e.g., '/knowledge')"),
+      limit: z.number().optional().describe("Max results (default: 10)"),
+    }),
+  })
+
+  tools.ltm_read = tool({
+    description: `Read a specific knowledge entry by slug. Use after ltm_search finds relevant results, or when you know the exact slug.
+
+Knowledge entries may contain [[slug]] cross-references to related entries - follow these links to explore connected knowledge.
+
+Returns: {slug, title, body, path} or 'Entry not found'`,
+    parameters: z.object({
+      slug: z.string().describe("The entry slug to read (e.g., 'identity', 'react-hooks')"),
+    }),
+  })
+
   return tools
 }
 
@@ -293,6 +354,49 @@ async function executeTool(
       const { tasks } = args as { tasks: Task[] }
       await storage.present.setTasks(tasks)
       return `Tasks updated (${tasks.length} tasks)`
+    }
+    // LTM retrieval tools
+    case "ltm_glob": {
+      const { pattern, maxDepth } = args as { pattern: string; maxDepth?: number }
+      const entries = await storage.ltm.glob(pattern, maxDepth)
+      const formatted = await Promise.all(entries.map(async e => {
+        const children = await storage.ltm.getChildren(e.slug)
+        return {
+          slug: e.slug,
+          title: e.title,
+          path: e.path,
+          hasChildren: children.length > 0,
+        }
+      }))
+      return JSON.stringify(formatted, null, 2)
+    }
+    case "ltm_search": {
+      const { query, path, limit } = args as { query: string; path?: string; limit?: number }
+      const results = await storage.ltm.search(query, path)
+      const limited = results.slice(0, limit ?? 10)
+      const formatted = limited.map(r => ({
+        slug: r.entry.slug,
+        title: r.entry.title,
+        path: r.entry.path,
+        snippet: r.entry.body.slice(0, 150) + (r.entry.body.length > 150 ? "..." : ""),
+      }))
+      if (formatted.length === 0) {
+        return `No entries found matching "${query}"`
+      }
+      return JSON.stringify(formatted, null, 2)
+    }
+    case "ltm_read": {
+      const { slug } = args as { slug: string }
+      const entry = await storage.ltm.read(slug)
+      if (!entry) {
+        return `Entry not found: ${slug}`
+      }
+      return JSON.stringify({
+        slug: entry.slug,
+        title: entry.title,
+        body: entry.body,
+        path: entry.path,
+      }, null, 2)
     }
     default:
       throw new Error(`Unknown tool: ${toolName}`)

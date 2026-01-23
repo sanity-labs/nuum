@@ -131,7 +131,6 @@ describe("LTM storage integration", () => {
       parentSlug: null,
       title: "Test Knowledge",
       body: "This is a test entry",
-      tags: ["test"],
       createdBy: "ltm-consolidate",
     })
 
