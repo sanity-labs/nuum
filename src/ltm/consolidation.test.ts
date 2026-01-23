@@ -203,4 +203,403 @@ describe("LTM storage integration", () => {
     const all = await storage.ltm.glob("/**")
     expect(all.length).toBeGreaterThanOrEqual(4) // identity, behavior, knowledge, project-x
   })
+
+  // Phase 3c: New storage method tests
+  describe("edit", () => {
+    it("performs surgical find-replace", async () => {
+      await storage.ltm.create({
+        slug: "edit-test",
+        parentSlug: null,
+        title: "Edit Test",
+        body: "The quick brown fox jumps over the lazy dog.",
+        createdBy: "ltm-consolidate",
+      })
+
+      const updated = await storage.ltm.edit(
+        "edit-test",
+        "brown fox",
+        "red cat",
+        1,
+        "ltm-consolidate"
+      )
+
+      expect(updated.version).toBe(2)
+      expect(updated.body).toBe("The quick red cat jumps over the lazy dog.")
+    })
+
+    it("fails if text not found", async () => {
+      await storage.ltm.create({
+        slug: "edit-notfound",
+        parentSlug: null,
+        title: "Edit Not Found",
+        body: "Some content here",
+        createdBy: "ltm-consolidate",
+      })
+
+      let failed = false
+      try {
+        await storage.ltm.edit("edit-notfound", "nonexistent", "replacement", 1, "ltm-consolidate")
+      } catch (e) {
+        failed = true
+        expect((e as Error).message).toContain("Text not found")
+      }
+      expect(failed).toBe(true)
+    })
+
+    it("fails if text appears multiple times", async () => {
+      await storage.ltm.create({
+        slug: "edit-multiple",
+        parentSlug: null,
+        title: "Edit Multiple",
+        body: "foo bar foo baz foo",
+        createdBy: "ltm-consolidate",
+      })
+
+      let failed = false
+      try {
+        await storage.ltm.edit("edit-multiple", "foo", "qux", 1, "ltm-consolidate")
+      } catch (e) {
+        failed = true
+        expect((e as Error).message).toContain("appears 3 times")
+      }
+      expect(failed).toBe(true)
+    })
+
+    it("fails with CAS conflict on wrong version", async () => {
+      await storage.ltm.create({
+        slug: "edit-cas",
+        parentSlug: null,
+        title: "Edit CAS",
+        body: "Original content",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Update to version 2
+      await storage.ltm.update("edit-cas", "Modified content", 1, "ltm-consolidate")
+
+      // Try to edit with stale version 1
+      let failed = false
+      try {
+        await storage.ltm.edit("edit-cas", "content", "text", 1, "ltm-consolidate")
+      } catch (e) {
+        failed = true
+        expect((e as Error).message).toContain("CAS conflict")
+      }
+      expect(failed).toBe(true)
+    })
+  })
+
+  describe("reparent", () => {
+    it("moves entry to new parent", async () => {
+      await storage.ltm.create({
+        slug: "parent-a",
+        parentSlug: null,
+        title: "Parent A",
+        body: "First parent",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "parent-b",
+        parentSlug: null,
+        title: "Parent B",
+        body: "Second parent",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "child",
+        parentSlug: "parent-a",
+        title: "Child",
+        body: "Child entry",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Verify initial path
+      let child = await storage.ltm.read("child")
+      expect(child?.path).toBe("/parent-a/child")
+
+      // Reparent to parent-b
+      const updated = await storage.ltm.reparent("child", "parent-b", 1, "ltm-consolidate")
+
+      expect(updated.version).toBe(2)
+      expect(updated.parentSlug).toBe("parent-b")
+      expect(updated.path).toBe("/parent-b/child")
+    })
+
+    it("updates descendant paths", async () => {
+      await storage.ltm.create({
+        slug: "old-parent",
+        parentSlug: null,
+        title: "Old Parent",
+        body: "Old parent",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "new-parent",
+        parentSlug: null,
+        title: "New Parent",
+        body: "New parent",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "movable",
+        parentSlug: "old-parent",
+        title: "Movable",
+        body: "Will be moved",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "grandchild",
+        parentSlug: "movable",
+        title: "Grandchild",
+        body: "Descendant entry",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Verify initial paths
+      let grandchild = await storage.ltm.read("grandchild")
+      expect(grandchild?.path).toBe("/old-parent/movable/grandchild")
+
+      // Reparent movable to new-parent
+      await storage.ltm.reparent("movable", "new-parent", 1, "ltm-consolidate")
+
+      // Verify grandchild path was updated
+      grandchild = await storage.ltm.read("grandchild")
+      expect(grandchild?.path).toBe("/new-parent/movable/grandchild")
+    })
+
+    it("prevents circular reparenting", async () => {
+      await storage.ltm.create({
+        slug: "top",
+        parentSlug: null,
+        title: "Top",
+        body: "Top level",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "bottom",
+        parentSlug: "top",
+        title: "Bottom",
+        body: "Under top",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Try to make top a child of bottom (circular)
+      let failed = false
+      try {
+        await storage.ltm.reparent("top", "bottom", 1, "ltm-consolidate")
+      } catch (e) {
+        failed = true
+        expect((e as Error).message).toContain("Cannot reparent")
+        expect((e as Error).message).toContain("descendant")
+      }
+      expect(failed).toBe(true)
+    })
+
+    it("fails with CAS conflict on wrong version", async () => {
+      await storage.ltm.create({
+        slug: "reparent-cas",
+        parentSlug: null,
+        title: "Reparent CAS",
+        body: "Test entry",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "target-parent",
+        parentSlug: null,
+        title: "Target",
+        body: "Target parent",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Update to version 2
+      await storage.ltm.update("reparent-cas", "Modified", 1, "ltm-consolidate")
+
+      // Try to reparent with stale version 1
+      let failed = false
+      try {
+        await storage.ltm.reparent("reparent-cas", "target-parent", 1, "ltm-consolidate")
+      } catch (e) {
+        failed = true
+        expect((e as Error).message).toContain("CAS conflict")
+      }
+      expect(failed).toBe(true)
+    })
+  })
+
+  describe("rename", () => {
+    it("changes entry slug and path", async () => {
+      await storage.ltm.create({
+        slug: "old-name",
+        parentSlug: null,
+        title: "Old Name",
+        body: "Entry to rename",
+        createdBy: "ltm-consolidate",
+      })
+
+      const updated = await storage.ltm.rename("old-name", "new-name", 1, "ltm-consolidate")
+
+      expect(updated.slug).toBe("new-name")
+      expect(updated.path).toBe("/new-name")
+      expect(updated.version).toBe(2)
+
+      // Old slug should not exist
+      const oldEntry = await storage.ltm.read("old-name")
+      expect(oldEntry).toBeNull()
+
+      // New slug should work
+      const newEntry = await storage.ltm.read("new-name")
+      expect(newEntry).not.toBeNull()
+    })
+
+    it("updates children parentSlug and descendant paths", async () => {
+      await storage.ltm.create({
+        slug: "parent-old",
+        parentSlug: null,
+        title: "Parent Old",
+        body: "Parent to rename",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "child-entry",
+        parentSlug: "parent-old",
+        title: "Child",
+        body: "Child entry",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "grandchild-entry",
+        parentSlug: "child-entry",
+        title: "Grandchild",
+        body: "Grandchild entry",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Rename parent
+      await storage.ltm.rename("parent-old", "parent-new", 1, "ltm-consolidate")
+
+      // Check child's parentSlug was updated
+      const child = await storage.ltm.read("child-entry")
+      expect(child?.parentSlug).toBe("parent-new")
+      expect(child?.path).toBe("/parent-new/child-entry")
+
+      // Check grandchild's path was updated
+      const grandchild = await storage.ltm.read("grandchild-entry")
+      expect(grandchild?.path).toBe("/parent-new/child-entry/grandchild-entry")
+    })
+
+    it("fails if new slug already exists", async () => {
+      await storage.ltm.create({
+        slug: "existing-a",
+        parentSlug: null,
+        title: "Existing A",
+        body: "First entry",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "existing-b",
+        parentSlug: null,
+        title: "Existing B",
+        body: "Second entry",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Try to rename existing-a to existing-b
+      let failed = false
+      try {
+        await storage.ltm.rename("existing-a", "existing-b", 1, "ltm-consolidate")
+      } catch (e) {
+        failed = true
+        expect((e as Error).message).toContain("already exists")
+      }
+      expect(failed).toBe(true)
+    })
+
+    it("fails with CAS conflict on wrong version", async () => {
+      await storage.ltm.create({
+        slug: "rename-cas",
+        parentSlug: null,
+        title: "Rename CAS",
+        body: "Test entry",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Update to version 2
+      await storage.ltm.update("rename-cas", "Modified", 1, "ltm-consolidate")
+
+      // Try to rename with stale version 1
+      let failed = false
+      try {
+        await storage.ltm.rename("rename-cas", "renamed", 1, "ltm-consolidate")
+      } catch (e) {
+        failed = true
+        expect((e as Error).message).toContain("CAS conflict")
+      }
+      expect(failed).toBe(true)
+    })
+  })
+
+  describe("search", () => {
+    it("finds entries by keyword in title or body", async () => {
+      await storage.ltm.create({
+        slug: "react-hooks",
+        parentSlug: null,
+        title: "React Hooks",
+        body: "useState, useEffect, and other React hooks",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "vue-components",
+        parentSlug: null,
+        title: "Vue Components",
+        body: "Vue.js component patterns",
+        createdBy: "ltm-consolidate",
+      })
+
+      const results = await storage.ltm.search("react")
+      expect(results.length).toBe(1)
+      expect(results[0].entry.slug).toBe("react-hooks")
+    })
+
+    it("filters by path prefix", async () => {
+      await storage.ltm.create({
+        slug: "projects",
+        parentSlug: null,
+        title: "Projects",
+        body: "All projects",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "auth-service",
+        parentSlug: "projects",
+        title: "Auth Service",
+        body: "Authentication patterns",
+        createdBy: "ltm-consolidate",
+      })
+
+      await storage.ltm.create({
+        slug: "auth-docs",
+        parentSlug: null,
+        title: "Auth Docs",
+        body: "Authentication documentation",
+        createdBy: "ltm-consolidate",
+      })
+
+      // Search for "auth" under /projects
+      const results = await storage.ltm.search("auth", "/projects")
+      expect(results.length).toBe(1)
+      expect(results[0].entry.slug).toBe("auth-service")
+    })
+  })
 })

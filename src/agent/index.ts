@@ -253,14 +253,11 @@ function buildTools(): Record<string, CoreTool> {
 - Understand the organization
 - Find related topics to explore
 
-Pattern examples:
-- "/**" - all entries
-- "/knowledge/**" - everything under knowledge
-- "/*" - root level only (with maxDepth: 1)
-
-Returns: Array of {slug, title, path, hasChildren}`,
+Example: ltm_glob({ pattern: "/**" })
+Example: ltm_glob({ pattern: "/knowledge/**", maxDepth: 2 })
+Returns: [{ slug, title, path, hasChildren }, ...]`,
     parameters: z.object({
-      pattern: z.string().describe("Glob pattern (e.g., '/**', '/knowledge/*')"),
+      pattern: z.string().describe("Glob pattern: '/**' (all), '/knowledge/**' (subtree), '/*' (root)"),
       maxDepth: z.number().optional().describe("Maximum tree depth to return"),
     }),
   })
@@ -271,10 +268,9 @@ Returns: Array of {slug, title, path, hasChildren}`,
 - User preferences or project details
 - Technical knowledge you've stored
 
-You don't manage this knowledge - a background process curates it.
-Knowledge entries may contain [[slug]] cross-references.
-
-Returns: Array of {slug, title, path, snippet} ranked by relevance`,
+Example: ltm_search({ query: "authentication" })
+Example: ltm_search({ query: "react", path: "/knowledge", limit: 5 })
+Returns: [{ slug, title, path, snippet }, ...] ranked by relevance`,
     parameters: z.object({
       query: z.string().describe("Search keywords"),
       path: z.string().optional().describe("Limit search to subtree (e.g., '/knowledge')"),
@@ -285,9 +281,10 @@ Returns: Array of {slug, title, path, snippet} ranked by relevance`,
   tools.ltm_read = tool({
     description: `Read a specific knowledge entry by slug. Use after ltm_search finds relevant results, or when you know the exact slug.
 
-Knowledge entries may contain [[slug]] cross-references to related entries - follow these links to explore connected knowledge.
+Example: ltm_read({ slug: "react-hooks" })
+Returns: { slug, title, body, path } or "Entry not found"
 
-Returns: {slug, title, body, path} or 'Entry not found'`,
+Knowledge entries may contain [[slug]] cross-references - follow these to explore connected knowledge.`,
     parameters: z.object({
       slug: z.string().describe("The entry slug to read (e.g., 'identity', 'react-hooks')"),
     }),

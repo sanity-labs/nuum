@@ -103,7 +103,13 @@ function buildConsolidationTools(
 
   // ltm_read - Read an LTM entry
   tools.ltm_read = tool({
-    description: "Read an LTM entry by slug. Returns entry content, version, and path.\n\nUse AFTER ltm_search finds relevant results, or when you know the exact slug.\nThe version is needed for CAS operations (edit, update, reparent, rename).\n\nReturns: {slug, title, body, path, version} or 'Entry not found'",
+    description: `Read an LTM entry by slug. Returns entry content, version, and path.
+
+Use AFTER ltm_search finds relevant results, or when you know the exact slug.
+The version is needed for CAS operations (edit, update, reparent, rename).
+
+Example: ltm_read({ slug: "react-hooks" })
+Returns: { slug, title, body, path, version } or "Entry not found"`,
     parameters: z.object({
       slug: z.string().describe("The entry slug to read (e.g., 'identity', 'react-hooks')"),
     }),
@@ -116,14 +122,11 @@ function buildConsolidationTools(
 - Understand the tree organization
 - Identify the right parent for new entries
 
-Pattern examples:
-- "/**" - all entries
-- "/knowledge/**" - everything under knowledge
-- "/*" - root level only (maxDepth: 1)
-
-Returns: Array of {slug, title, path, hasChildren}`,
+Example: ltm_glob({ pattern: "/knowledge/**" })
+Example: ltm_glob({ pattern: "/*", maxDepth: 1 })
+Returns: [{ slug, title, path, hasChildren }, ...]`,
     parameters: z.object({
-      pattern: z.string().describe("Glob pattern (e.g., '/**', '/knowledge/*')"),
+      pattern: z.string().describe("Glob pattern: '/**' (all), '/knowledge/**' (subtree), '/*' (root only)"),
       maxDepth: z.number().optional().describe("Maximum tree depth to return"),
     }),
   })
@@ -135,7 +138,9 @@ Returns: Array of {slug, title, path, hasChildren}`,
 - Find entries to update or merge
 - Discover existing knowledge on a topic
 
-Returns: Array of {slug, title, path, snippet} ranked by relevance`,
+Example: ltm_search({ query: "authentication" })
+Example: ltm_search({ query: "hooks", path: "/knowledge/react", limit: 5 })
+Returns: [{ slug, title, path, snippet }, ...] ranked by relevance`,
     parameters: z.object({
       query: z.string().describe("Search keywords"),
       path: z.string().optional().describe("Limit search to subtree (e.g., '/knowledge')"),
@@ -150,12 +155,17 @@ Returns: Array of {slug, title, path, snippet} ranked by relevance`,
 IMPORTANT: Always use ltm_search first to check for existing related entries.
 Consider updating existing entries instead of creating duplicates.
 
-Use [[slug]] syntax in body to cross-link related entries.`,
+Example: ltm_create({
+  slug: "project-auth-patterns",
+  parentSlug: "knowledge",
+  title: "Authentication Patterns",
+  body: "OAuth2 flow used in this project. See also [[oauth-config]]."
+})`,
     parameters: z.object({
       slug: z.string().describe("Unique identifier for the entry (e.g., 'project-auth-patterns')"),
-      parentSlug: z.string().nullable().describe("Parent entry slug for hierarchy (null for root level, 'knowledge' for general knowledge)"),
+      parentSlug: z.string().nullable().describe("Parent slug for hierarchy (null for root, 'knowledge' for general)"),
       title: z.string().describe("Human-readable title"),
-      body: z.string().describe("The knowledge content. Use [[slug]] to link to other entries."),
+      body: z.string().describe("Content with [[slug]] cross-links to related entries"),
     }),
   })
 
@@ -163,6 +173,12 @@ Use [[slug]] syntax in body to cross-link related entries.`,
   tools.ltm_update = tool({
     description: `Replace an entry's entire body. Use for major rewrites.
 For small changes, use ltm_edit instead (surgical find-replace).
+
+Example: ltm_update({
+  slug: "react-hooks",
+  newBody: "Updated content with new information...",
+  expectedVersion: 3
+})
 
 On version conflict: Error shows current version. Re-read and retry.`,
     parameters: z.object({
@@ -179,6 +195,13 @@ On version conflict: Error shows current version. Re-read and retry.`,
 Requires EXACT match of oldText (must appear exactly once).
 For full rewrites, use ltm_update instead.
 
+Example: ltm_edit({
+  slug: "react-hooks",
+  oldText: "useState hook",
+  newText: "useState and useReducer hooks",
+  expectedVersion: 3
+})
+
 On version conflict: Error shows current version - re-read and retry.`,
     parameters: z.object({
       slug: z.string().describe("The entry slug to edit"),
@@ -194,6 +217,12 @@ On version conflict: Error shows current version - re-read and retry.`,
 - Reorganize knowledge into better structure
 - Group related entries under a common parent
 
+Example: ltm_reparent({
+  slug: "oauth-flow",
+  newParentSlug: "auth-system",
+  expectedVersion: 2
+})
+
 Updates path for this entry and all descendants.`,
     parameters: z.object({
       slug: z.string().describe("The entry to move"),
@@ -207,6 +236,12 @@ Updates path for this entry and all descendants.`,
     description: `Change an entry's slug. Use to:
 - Fix naming for clarity
 - Align with naming conventions
+
+Example: ltm_rename({
+  slug: "auth",
+  newSlug: "authentication",
+  expectedVersion: 1
+})
 
 Updates all paths. Children keep their relative position.`,
     parameters: z.object({
