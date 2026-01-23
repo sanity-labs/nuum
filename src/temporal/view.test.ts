@@ -1,8 +1,10 @@
 /**
  * Tests for temporal view construction.
  *
- * Token distribution targets (from arch spec):
- * [Oldest summaries: ~10%] [Mid-history: ~20%] [Recent summaries: ~30%] [Raw messages: ~40%]
+ * Key invariant: The ENTIRE history is always represented in the view.
+ * Old content is recursively summarized, recent content is raw messages.
+ * The budget is informational only - if exceeded, compaction triggers,
+ * but content is NEVER dropped from the view.
  */
 
 import { describe, it, expect } from "bun:test"
@@ -83,12 +85,31 @@ describe("buildTemporalView", () => {
       expect(result.breakdown.messageTokens).toBe(20)
     })
 
-    it("respects 40% budget for raw messages", () => {
-      // Budget is 100, so raw messages get 40 tokens
+    it("includes ALL messages regardless of budget", () => {
+      // Budget is informational only - never drops content
       const messages = [
         makeMessage("msg_001", "a", 20),
         makeMessage("msg_002", "b", 20),
-        makeMessage("msg_003", "c", 20), // This should be excluded
+        makeMessage("msg_003", "c", 20),
+      ]
+
+      const result = buildTemporalView({
+        budget: 100, // Would be exceeded, but we don't drop
+        messages,
+        summaries: [],
+      })
+
+      expect(result.messages).toHaveLength(3)
+      expect(result.breakdown.messageTokens).toBe(60)
+      // totalTokens may exceed budget - that's expected
+      expect(result.totalTokens).toBe(60)
+    })
+
+    it("returns messages in chronological order", () => {
+      const messages = [
+        makeMessage("msg_003", "new", 20),
+        makeMessage("msg_001", "old", 20), // Out of order in input
+        makeMessage("msg_002", "mid", 20),
       ]
 
       const result = buildTemporalView({
@@ -97,26 +118,8 @@ describe("buildTemporalView", () => {
         summaries: [],
       })
 
-      expect(result.messages).toHaveLength(2)
-      expect(result.breakdown.messageTokens).toBe(40)
-    })
-
-    it("prioritizes most recent messages", () => {
-      const messages = [
-        makeMessage("msg_001", "old", 20),
-        makeMessage("msg_002", "mid", 20),
-        makeMessage("msg_003", "new", 20),
-      ]
-
-      const result = buildTemporalView({
-        budget: 100, // 40 tokens for messages = only 2 fit
-        messages,
-        summaries: [],
-      })
-
-      expect(result.messages).toHaveLength(2)
-      // Should include msg_002 and msg_003 (most recent)
-      expect(result.messages.map((m) => m.id)).toEqual(["msg_002", "msg_003"])
+      expect(result.messages).toHaveLength(3)
+      expect(result.messages.map((m) => m.id)).toEqual(["msg_001", "msg_002", "msg_003"])
     })
   })
 
@@ -167,8 +170,8 @@ describe("buildTemporalView", () => {
     })
   })
 
-  describe("budget handling", () => {
-    it("respects token budget", () => {
+  describe("budget is informational only", () => {
+    it("may exceed budget - signals compaction needed", () => {
       const messages = [
         makeMessage("msg_001", "a", 100),
         makeMessage("msg_002", "b", 100),
@@ -178,15 +181,18 @@ describe("buildTemporalView", () => {
       ]
 
       const result = buildTemporalView({
-        budget: 150,
+        budget: 150, // Would be exceeded
         messages,
         summaries,
       })
 
-      expect(result.totalTokens).toBeLessThanOrEqual(150)
+      // All content included even though it exceeds budget
+      expect(result.summaries).toHaveLength(1)
+      expect(result.messages).toHaveLength(2)
+      expect(result.totalTokens).toBe(300) // 100 + 100 + 100
     })
 
-    it("allocates ~40% to raw messages, ~60% to summaries", () => {
+    it("includes all summaries and messages regardless of budget", () => {
       const messages = [
         makeMessage("msg_100", "a", 10),
         makeMessage("msg_101", "b", 10),
@@ -200,19 +206,20 @@ describe("buildTemporalView", () => {
       ]
 
       const result = buildTemporalView({
-        budget: 100,
+        budget: 50, // Tiny budget - doesn't matter
         messages,
         summaries,
       })
 
-      // 40 tokens for messages = 4 messages
-      expect(result.breakdown.messageTokens).toBeLessThanOrEqual(40)
-      // 60 tokens for summaries = 2 summaries
-      expect(result.breakdown.summaryTokens).toBeLessThanOrEqual(60)
+      // All content included
+      expect(result.messages).toHaveLength(5)
+      expect(result.summaries).toHaveLength(2)
+      expect(result.breakdown.messageTokens).toBe(50)
+      expect(result.breakdown.summaryTokens).toBe(60)
+      expect(result.totalTokens).toBe(110)
     })
 
-    it("drops older content first when budget overflows", () => {
-      // All recent messages that would fit in 40% budget
+    it("never drops messages - full history always represented", () => {
       const messages = [
         makeMessage("msg_001", "oldest", 15),
         makeMessage("msg_002", "older", 15),
@@ -221,28 +228,36 @@ describe("buildTemporalView", () => {
       ]
 
       const result = buildTemporalView({
-        budget: 100, // 40 tokens for messages
+        budget: 10, // Very small budget - still includes everything
         messages,
         summaries: [],
       })
 
-      // Should drop oldest, keep most recent
-      expect(result.messages.map((m) => m.id)).not.toContain("msg_001")
-      expect(result.messages.map((m) => m.id)).toContain("msg_004")
+      // All messages included in chronological order
+      expect(result.messages).toHaveLength(4)
+      expect(result.messages.map((m) => m.id)).toEqual([
+        "msg_001",
+        "msg_002",
+        "msg_003",
+        "msg_004",
+      ])
     })
 
-    it("preserves recency — recent messages always included if budget allows", () => {
+    it("includes all messages regardless of age", () => {
       const messages = [
         makeMessage("msg_001", "old", 5),
         makeMessage("msg_100", "very recent", 5),
       ]
 
       const result = buildTemporalView({
-        budget: 100, // Plenty of budget
+        budget: 1, // Tiny budget
         messages,
         summaries: [],
       })
 
+      // Both messages included
+      expect(result.messages).toHaveLength(2)
+      expect(result.messages.map((m) => m.id)).toContain("msg_001")
       expect(result.messages.map((m) => m.id)).toContain("msg_100")
     })
   })
@@ -326,35 +341,35 @@ describe("buildTemporalView", () => {
     })
   })
 
-  describe("summary selection priority", () => {
-    it("prefers higher-order summaries when budget limited", () => {
+  describe("summary subsumption", () => {
+    it("excludes lower-order summaries when subsumed by higher-order", () => {
       const order1 = makeSummary("sum_001", 1, "msg_001", "msg_010", 100)
       const order2 = makeSummary("sum_002", 2, "msg_001", "msg_010", 50)
 
-      // Budget only fits one
       const result = buildTemporalView({
-        budget: 100, // 60 for summaries
+        budget: 1000,
         messages: [],
         summaries: [order1, order2],
       })
 
-      // Should include order2 (higher order), not order1
+      // order1 is subsumed by order2 (same range, higher order)
       expect(result.summaries.map((s) => s.id)).toContain("sum_002")
       expect(result.summaries.map((s) => s.id)).not.toContain("sum_001")
     })
 
-    it("within same order, prefers more recent summaries", () => {
+    it("includes both summaries when not subsumed (non-overlapping)", () => {
       const older = makeSummary("sum_001", 1, "msg_001", "msg_010", 40)
       const newer = makeSummary("sum_002", 1, "msg_011", "msg_020", 40)
 
-      // Budget only fits one
       const result = buildTemporalView({
-        budget: 100, // 60 for summaries
+        budget: 1000,
         messages: [],
         summaries: [older, newer],
       })
 
-      // Should include newer summary
+      // Neither is subsumed - both included
+      expect(result.summaries).toHaveLength(2)
+      expect(result.summaries.map((s) => s.id)).toContain("sum_001")
       expect(result.summaries.map((s) => s.id)).toContain("sum_002")
     })
   })

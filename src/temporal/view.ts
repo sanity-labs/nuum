@@ -2,10 +2,11 @@
  * Temporal view construction.
  *
  * Builds the temporal context as proper conversation turns (CoreMessage[]).
- * The view must fit within token budget while prioritizing recent content.
+ * The ENTIRE history is always represented - older content is summarized,
+ * recent content is raw messages. No content is dropped.
  *
- * Token distribution (from arch spec):
- * [Oldest summaries: ~10%] [Mid-history: ~20%] [Recent summaries: ~30%] [Raw messages: ~40%]
+ * If the view exceeds the token budget, that signals compaction is needed -
+ * but the view still includes everything.
  */
 
 import type {
@@ -33,7 +34,7 @@ export interface TemporalView {
 }
 
 export interface BuildTemporalViewOptions {
-  /** Maximum token budget for the entire view */
+  /** Token budget (informational - view may exceed if compaction is needed) */
   budget: number
   /** All messages in the temporal store */
   messages: TemporalMessage[]
@@ -42,16 +43,19 @@ export interface BuildTemporalViewOptions {
 }
 
 /**
- * Build a temporal view that fits within the token budget.
+ * Build a temporal view representing the ENTIRE conversation history.
  *
  * Algorithm:
- * 1. Add recent raw messages until ~40% of budget
- * 2. Fill remaining budget with summaries (highest order first, recent first)
- * 3. Skip messages covered by summaries
- * 4. Skip summaries subsumed by higher-order summaries
+ * 1. Get all effective summaries (not subsumed by higher-order ones)
+ * 2. Get all messages NOT covered by any summary
+ * 3. Include everything - the full history is always represented
+ *
+ * The budget parameter is purely informational. If totalTokens exceeds budget,
+ * that signals compaction should be triggered - but we NEVER drop content.
+ * The agent always sees the complete history, just recursively summarized.
  */
 export function buildTemporalView(options: BuildTemporalViewOptions): TemporalView {
-  const { budget, messages, summaries } = options
+  const { messages, summaries } = options
 
   // Handle empty history
   if (messages.length === 0 && summaries.length === 0) {
@@ -63,66 +67,36 @@ export function buildTemporalView(options: BuildTemporalViewOptions): TemporalVi
     }
   }
 
-  // Budget allocation
-  const rawMessageBudget = Math.floor(budget * 0.4)
-  const summaryBudget = budget - rawMessageBudget
+  // 1. Get all effective summaries (not subsumed by higher-order ones)
+  // These represent the most compressed form of older history
+  const effectiveSummaries = summaries.filter(
+    summary => !isSubsumedByHigherOrder(summary, summaries)
+  )
 
-  let messageTokens = 0
-  let summaryTokens = 0
-  const includedMessages: TemporalMessage[] = []
-  const includedSummaries: TemporalSummary[] = []
+  // 2. Get all messages NOT covered by any summary
+  // These are recent messages that haven't been compacted yet
+  const uncoveredMessages = messages.filter(
+    msg => !isCoveredBySummary(msg.id, summaries)
+  )
 
-  // 1. Add recent raw messages (most recent first, up to ~40% of budget)
-  // Sort messages by ID descending (most recent first)
-  const sortedMessages = [...messages].sort((a, b) => b.id.localeCompare(a.id))
+  // Sort summaries chronologically (by startId)
+  const sortedSummaries = [...effectiveSummaries].sort(
+    (a, b) => a.startId.localeCompare(b.startId)
+  )
 
-  for (const msg of sortedMessages) {
-    // Skip if covered by any summary
-    if (isCoveredBySummary(msg.id, summaries)) {
-      continue
-    }
+  // Sort messages chronologically (by id)
+  const sortedMessages = [...uncoveredMessages].sort(
+    (a, b) => a.id.localeCompare(b.id)
+  )
 
-    // Check if adding this message would exceed budget
-    if (messageTokens + msg.tokenEstimate > rawMessageBudget) {
-      break
-    }
-
-    // Add to beginning to maintain chronological order
-    includedMessages.unshift(msg)
-    messageTokens += msg.tokenEstimate
-  }
-
-  // 2. Fill remaining budget with summaries
-  // Sort summaries by: order DESC (highest first), then id DESC (most recent first)
-  const sortedSummaries = [...summaries].sort((a, b) => {
-    if (a.orderNum !== b.orderNum) {
-      return b.orderNum - a.orderNum // Higher order first
-    }
-    return b.id.localeCompare(a.id) // More recent first
-  })
-
-  for (const summary of sortedSummaries) {
-    // Skip if subsumed by a higher-order summary
-    if (isSubsumedByHigherOrder(summary, summaries)) {
-      continue
-    }
-
-    // Check if adding this summary would exceed budget
-    if (summaryTokens + summary.tokenEstimate > summaryBudget) {
-      continue // Try next summary, it might be smaller
-    }
-
-    includedSummaries.push(summary)
-    summaryTokens += summary.tokenEstimate
-  }
-
-  // Sort summaries chronologically for output (by startId)
-  includedSummaries.sort((a, b) => a.startId.localeCompare(b.startId))
+  // Calculate token totals - no dropping, include everything
+  const summaryTokens = sortedSummaries.reduce((sum, s) => sum + s.tokenEstimate, 0)
+  const messageTokens = sortedMessages.reduce((sum, m) => sum + m.tokenEstimate, 0)
 
   return {
-    summaries: includedSummaries,
-    messages: includedMessages,
-    totalTokens: messageTokens + summaryTokens,
+    summaries: sortedSummaries,
+    messages: sortedMessages,
+    totalTokens: summaryTokens + messageTokens,
     breakdown: {
       summaryTokens,
       messageTokens,

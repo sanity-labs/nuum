@@ -91,39 +91,40 @@ describe("Temporal View Construction", () => {
       summaries: [summary],
     })
 
-    // Should include summary and recent messages not covered by summary
+    // Should include summary and all messages not covered by summary
     expect(view.summaries.length).toBe(1)
-    expect(view.messages.length).toBeLessThanOrEqual(10) // Messages after summary
+    expect(view.messages.length).toBe(10) // Messages 10-19 (not covered by summary)
   })
 
-  it("respects token budget", async () => {
+  it("includes all messages regardless of budget (budget is informational)", async () => {
     const messages = await addMessages(100, 100) // 10,000 tokens total
 
     const view = buildTemporalView({
-      budget: 2000,
+      budget: 2000, // Much smaller than total - doesn't matter
       messages,
       summaries: [],
     })
 
-    expect(view.totalTokens).toBeLessThanOrEqual(2000)
+    // All messages included - full history always represented
+    expect(view.messages.length).toBe(100)
+    expect(view.totalTokens).toBe(10000)
   })
 
-  it("prioritizes recent messages", async () => {
+  it("returns messages in chronological order", async () => {
     const messages = await addMessages(50, 50)
 
     const view = buildTemporalView({
-      budget: 500, // Only room for ~10 messages
+      budget: 500,
       messages,
       summaries: [],
     })
 
-    // Should have most recent messages
-    const viewIds = view.messages.map(m => m.id)
-    const recentIds = messages.slice(-10).map(m => m.id)
+    // All messages included in chronological order
+    expect(view.messages.length).toBe(50)
 
-    // All included messages should be from recent set
-    for (const id of viewIds) {
-      expect(recentIds).toContain(id)
+    // Verify chronological order (IDs are ULIDs, so string comparison works)
+    for (let i = 1; i < view.messages.length; i++) {
+      expect(view.messages[i].id > view.messages[i - 1].id).toBe(true)
     }
   })
 

@@ -379,7 +379,7 @@ describe("compaction workflow edge cases", () => {
     const messages = await storage.temporal.getMessages()
     expect(messages).toHaveLength(500)
 
-    // Build view with limited budget
+    // Build view - budget is informational, all content included
     const summaries = await storage.temporal.getSummaries()
     const view = buildTemporalView({
       budget: 2000,
@@ -387,8 +387,10 @@ describe("compaction workflow edge cases", () => {
       summaries,
     })
 
-    // Should fit within budget
-    expect(view.totalTokens).toBeLessThanOrEqual(2000)
+    // All messages included regardless of budget (full history represented)
+    // Budget is informational only - if exceeded, signals compaction needed
+    expect(view.messages.length).toBe(500)
+    expect(view.totalTokens).toBe(10000) // 500 * 20
   })
 })
 
