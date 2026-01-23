@@ -71,7 +71,6 @@ const INIT_SCHEMA = `
     path TEXT NOT NULL,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
-    tags TEXT NOT NULL DEFAULT '[]',
     links TEXT NOT NULL DEFAULT '[]',
     version INTEGER NOT NULL DEFAULT 1,
     created_by TEXT NOT NULL,

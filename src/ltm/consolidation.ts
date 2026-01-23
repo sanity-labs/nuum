@@ -4,11 +4,24 @@
  * Extracts durable knowledge from raw conversation messages into long-term memory.
  * Runs BEFORE compaction, while full details are still available in temporal memory.
  *
- * This is a mini-agent with limited tools focused on LTM operations:
- * - ltm_read: Read existing LTM entries
+ * This is a mini-agent (the "LTM Manager") with tools for knowledge curation:
+ *
+ * Navigation & Search:
+ * - ltm_read: Read a specific entry
+ * - ltm_glob: Browse tree structure
+ * - ltm_search: Find related entries
+ *
+ * Creation & Modification:
  * - ltm_create: Create new knowledge entries
- * - ltm_update: Update existing entries (with CAS)
- * - ltm_archive: Archive outdated entries
+ * - ltm_update: Full rewrite of entry body (CAS)
+ * - ltm_edit: Surgical find-replace (CAS)
+ *
+ * Organization:
+ * - ltm_reparent: Move entry to new parent
+ * - ltm_rename: Change entry slug
+ * - ltm_archive: Soft-delete outdated entries
+ *
+ * Workflow:
  * - finish_consolidation: Signal completion
  */
 
@@ -21,6 +34,21 @@ import type { AgentType } from "../storage/ltm"
 import { Provider } from "../provider"
 import { Identifier } from "../id"
 import { Log } from "../util/log"
+import {
+  Tool,
+  LTMGlobTool,
+  LTMSearchTool,
+  LTMReadTool,
+  LTMCreateTool,
+  LTMUpdateTool,
+  LTMEditTool,
+  LTMReparentTool,
+  LTMRenameTool,
+  LTMArchiveTool,
+  renderCompactTree,
+  type LTMToolContext,
+} from "../tool"
+import { buildSystemPrompt, buildConversationHistory } from "../agent"
 
 const log = Log.create({ service: "consolidation-agent" })
 
@@ -81,53 +109,59 @@ export function isConversationNoteworthy(messages: TemporalMessage[]): boolean {
 
 /**
  * Build tools for the consolidation agent.
+ * Uses shared tool definitions from src/tool/ltm.ts.
  */
-function buildConsolidationTools(
-  storage: Storage,
-  result: ConsolidationResult,
-): Record<string, CoreTool> {
+function buildConsolidationTools(): Record<string, CoreTool> {
   const tools: Record<string, CoreTool> = {}
 
-  // ltm_read - Read an LTM entry
+  // LTM read-only tools (shared definitions)
   tools.ltm_read = tool({
-    description: "Read an LTM entry by path (slug). Returns the entry content or null if not found.",
-    parameters: z.object({
-      path: z.string().describe("The entry path/slug to read (e.g., 'identity', 'knowledge/preferences')"),
-    }),
+    description: LTMReadTool.definition.description,
+    parameters: LTMReadTool.definition.parameters,
   })
 
-  // ltm_create - Create a new LTM entry
+  tools.ltm_glob = tool({
+    description: LTMGlobTool.definition.description,
+    parameters: LTMGlobTool.definition.parameters,
+  })
+
+  tools.ltm_search = tool({
+    description: LTMSearchTool.definition.description,
+    parameters: LTMSearchTool.definition.parameters,
+  })
+
+  // LTM write tools (shared definitions)
   tools.ltm_create = tool({
-    description: "Create a new LTM entry. Use for new knowledge that should be retained long-term. Required: slug, parentSlug, title, body.",
-    parameters: z.object({
-      slug: z.string().describe("Required. Unique identifier for the entry (e.g., 'project-auth-patterns')"),
-      parentSlug: z.string().nullable().describe("Required. Parent entry slug for hierarchy (null for root level, 'knowledge' for general knowledge)"),
-      title: z.string().describe("Required. Human-readable title"),
-      body: z.string().describe("Required. The knowledge content to store - this is the main content of the entry"),
-      tags: z.array(z.string()).optional().describe("Optional. Tags for searchability"),
-    }),
+    description: LTMCreateTool.definition.description,
+    parameters: LTMCreateTool.definition.parameters,
   })
 
-  // ltm_update - Update an existing LTM entry
   tools.ltm_update = tool({
-    description: "Update an existing LTM entry. Uses compare-and-swap to prevent conflicts.",
-    parameters: z.object({
-      slug: z.string().describe("The entry slug to update"),
-      newBody: z.string().describe("The new content to replace the existing body"),
-      expectedVersion: z.number().describe("Expected current version (for CAS). Get this from ltm_read."),
-    }),
+    description: LTMUpdateTool.definition.description,
+    parameters: LTMUpdateTool.definition.parameters,
   })
 
-  // ltm_archive - Archive an outdated LTM entry
+  tools.ltm_edit = tool({
+    description: LTMEditTool.definition.description,
+    parameters: LTMEditTool.definition.parameters,
+  })
+
+  tools.ltm_reparent = tool({
+    description: LTMReparentTool.definition.description,
+    parameters: LTMReparentTool.definition.parameters,
+  })
+
+  tools.ltm_rename = tool({
+    description: LTMRenameTool.definition.description,
+    parameters: LTMRenameTool.definition.parameters,
+  })
+
   tools.ltm_archive = tool({
-    description: "Archive an LTM entry that is no longer relevant. Archived entries are soft-deleted.",
-    parameters: z.object({
-      slug: z.string().describe("The entry slug to archive"),
-      expectedVersion: z.number().describe("Expected current version (for CAS). Get this from ltm_read."),
-    }),
+    description: LTMArchiveTool.definition.description,
+    parameters: LTMArchiveTool.definition.parameters,
   })
 
-  // finish_consolidation - Signal completion
+  // finish_consolidation - Signal completion (consolidation-specific)
   tools.finish_consolidation = tool({
     description: "Call this when you have finished reviewing the conversation and updating LTM. Always call this to complete consolidation.",
     parameters: z.object({
@@ -139,7 +173,22 @@ function buildConsolidationTools(
 }
 
 /**
- * Execute a consolidation tool call.
+ * Create an LTM tool context for consolidation.
+ */
+function createLTMContext(storage: Storage): Tool.Context & { extra: LTMToolContext } {
+  const ctx = Tool.createContext({
+    sessionID: "consolidation",
+    messageID: "consolidation",
+  })
+  ;(ctx as Tool.Context & { extra: LTMToolContext }).extra = {
+    ltm: storage.ltm,
+    agentType: AGENT_TYPE,
+  }
+  return ctx as Tool.Context & { extra: LTMToolContext }
+}
+
+/**
+ * Execute a consolidation tool call using shared tool implementations.
  */
 async function executeConsolidationTool(
   toolName: string,
@@ -147,84 +196,109 @@ async function executeConsolidationTool(
   storage: Storage,
   result: ConsolidationResult,
 ): Promise<{ output: string; done: boolean }> {
+  const ctx = createLTMContext(storage)
+
   switch (toolName) {
+    // Read-only tools - delegate to shared implementations
     case "ltm_read": {
-      const { path } = args as { path: string }
-      const entry = await storage.ltm.read(path)
-      if (!entry) {
-        return { output: `Entry not found: ${path}`, done: false }
-      }
-      return {
-        output: JSON.stringify({
-          slug: entry.slug,
-          title: entry.title,
-          body: entry.body,
-          version: entry.version,
-          tags: JSON.parse(entry.tags),
-        }, null, 2),
-        done: false,
-      }
+      const toolResult = await LTMReadTool.definition.execute(
+        args as z.infer<typeof LTMReadTool.definition.parameters>,
+        ctx,
+      )
+      return { output: toolResult.output, done: false }
     }
 
+    case "ltm_glob": {
+      const toolResult = await LTMGlobTool.definition.execute(
+        args as z.infer<typeof LTMGlobTool.definition.parameters>,
+        ctx,
+      )
+      return { output: toolResult.output, done: false }
+    }
+
+    case "ltm_search": {
+      const toolResult = await LTMSearchTool.definition.execute(
+        args as z.infer<typeof LTMSearchTool.definition.parameters>,
+        ctx,
+      )
+      return { output: toolResult.output, done: false }
+    }
+
+    // Write tools - delegate to shared implementations and track results
     case "ltm_create": {
-      const { slug, parentSlug, title, body, tags } = args as {
-        slug: string
-        parentSlug: string | null
-        title: string
-        body: string
-        tags?: string[]
-      }
-      try {
-        await storage.ltm.create({
-          slug,
-          parentSlug,
-          title,
-          body,
-          tags,
-          createdBy: AGENT_TYPE,
-        })
+      const toolResult = await LTMCreateTool.definition.execute(
+        args as z.infer<typeof LTMCreateTool.definition.parameters>,
+        ctx,
+      )
+      // Track success (shared tool returns "Created entry:" on success)
+      if (toolResult.output.startsWith("Created entry:")) {
         result.entriesCreated++
-        log.info("created LTM entry", { slug, parentSlug })
-        return { output: `Created entry: ${slug}`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        return { output: `Failed to create entry: ${msg}`, done: false }
+        log.info("created LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_update": {
-      const { slug, newBody, expectedVersion } = args as {
-        slug: string
-        newBody: string
-        expectedVersion: number
-      }
-      try {
-        await storage.ltm.update(slug, newBody, expectedVersion, AGENT_TYPE)
+      const toolResult = await LTMUpdateTool.definition.execute(
+        args as z.infer<typeof LTMUpdateTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Updated entry:")) {
         result.entriesUpdated++
-        log.info("updated LTM entry", { slug })
-        return { output: `Updated entry: ${slug}`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        return { output: `Failed to update entry: ${msg}`, done: false }
+        log.info("updated LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
+    }
+
+    case "ltm_edit": {
+      const toolResult = await LTMEditTool.definition.execute(
+        args as z.infer<typeof LTMEditTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Edited entry:")) {
+        result.entriesUpdated++
+        log.info("edited LTM entry", { slug: (args as { slug: string }).slug })
+      }
+      return { output: toolResult.output, done: false }
+    }
+
+    case "ltm_reparent": {
+      const toolResult = await LTMReparentTool.definition.execute(
+        args as z.infer<typeof LTMReparentTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Moved entry:")) {
+        result.entriesUpdated++
+        log.info("reparented LTM entry", { slug: (args as { slug: string }).slug })
+      }
+      return { output: toolResult.output, done: false }
+    }
+
+    case "ltm_rename": {
+      const toolResult = await LTMRenameTool.definition.execute(
+        args as z.infer<typeof LTMRenameTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Renamed entry:")) {
+        result.entriesUpdated++
+        log.info("renamed LTM entry", { slug: (args as { slug: string }).slug })
+      }
+      return { output: toolResult.output, done: false }
     }
 
     case "ltm_archive": {
-      const { slug, expectedVersion } = args as {
-        slug: string
-        expectedVersion: number
-      }
-      try {
-        await storage.ltm.archive(slug, expectedVersion)
+      const toolResult = await LTMArchiveTool.definition.execute(
+        args as z.infer<typeof LTMArchiveTool.definition.parameters>,
+        ctx,
+      )
+      if (toolResult.output.startsWith("Archived entry:")) {
         result.entriesArchived++
-        log.info("archived LTM entry", { slug })
-        return { output: `Archived entry: ${slug}`, done: false }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        return { output: `Failed to archive entry: ${msg}`, done: false }
+        log.info("archived LTM entry", { slug: (args as { slug: string }).slug })
       }
+      return { output: toolResult.output, done: false }
     }
 
+    // Consolidation-specific tool
     case "finish_consolidation": {
       const { summary } = args as { summary: string }
       result.summary = summary
@@ -237,75 +311,76 @@ async function executeConsolidationTool(
 }
 
 /**
- * Build the consolidation prompt.
+ * Build the LTM review turn content.
+ * This is added as a system message to continue the main agent's conversation.
  */
-function buildConsolidationPrompt(
-  messages: TemporalMessage[],
-  currentLTM: { identity: LTMEntry | null; behavior: LTMEntry | null; knowledge: LTMEntry[] },
-): string {
-  let prompt = `You are reviewing a conversation to extract durable knowledge for long-term memory.
+async function buildLTMReviewTurn(
+  storage: Storage,
+  recentlyUpdatedEntries: LTMEntry[],
+): Promise<string> {
+  // Get the full LTM tree (3 levels deep)
+  const allEntries = await storage.ltm.glob("/**")
+  const treeView = renderCompactTree(allEntries, 3)
 
-Your task: Review the conversation below and decide if any information should be saved to LTM.
+  let content = `## Long-Term Memory Review
 
-## What to Extract
-- User preferences and working style
-- Project-specific patterns and conventions
-- Technical decisions and their rationale
-- Important facts about the codebase or workflow
-- Corrections to existing knowledge
+It's time to review your long-term memory. Take a moment to consider whether there are insights, observations, or facts from the recent conversation that should be captured.
 
-## What NOT to Extract
-- Transient task details (these go in temporal memory)
-- Obvious or trivial information
-- Speculative or uncertain information
+### Current Memory Inventory
 
-## Current LTM State
+${treeView || "(empty)"}
 `
 
-  // Add identity
-  if (currentLTM.identity) {
-    prompt += `\n### /identity\n${currentLTM.identity.body}\n`
-  } else {
-    prompt += `\n### /identity\n(not set)\n`
-  }
+  // Add recently updated entries if any
+  if (recentlyUpdatedEntries.length > 0) {
+    content += `
+### Recently Updated Memories
 
-  // Add behavior
-  if (currentLTM.behavior) {
-    prompt += `\n### /behavior\n${currentLTM.behavior.body}\n`
-  } else {
-    prompt += `\n### /behavior\n(not set)\n`
-  }
-
-  // Add knowledge entries
-  if (currentLTM.knowledge.length > 0) {
-    prompt += `\n### /knowledge entries\n`
-    for (const entry of currentLTM.knowledge) {
-      prompt += `- ${entry.slug}: ${entry.title}\n`
+The following entries were recently modified:
+`
+    for (const entry of recentlyUpdatedEntries) {
+      content += `- **${entry.slug}**: ${entry.title}\n`
     }
   }
 
-  prompt += `\n## Conversation to Review\n`
+  content += `
+### Memory Guidelines
 
-  // Add messages
-  for (const msg of messages) {
-    const prefix = msg.type === "user" ? "User" : msg.type === "assistant" ? "Assistant" : `[${msg.type}]`
-    // Truncate very long messages
-    const content = msg.content.length > 2000 ? msg.content.slice(0, 2000) + "... [truncated]" : msg.content
-    prompt += `\n${prefix}: ${content}\n`
-  }
+A good memory entry is:
+- **Compact**: Optimized for recall, not explanation. You are the only audience.
+- **Factual**: Captures specific facts, decisions, patterns, or preferences.
+- **Actionable**: Information you need to perform tasks better over time.
 
-  prompt += `\n## Instructions
-1. Review the conversation for durable knowledge worth retaining
-2. Use ltm_read(path) to check existing entries before updating
-3. Use ltm_create to add new knowledge. Example:
-   ltm_create({"slug": "user-prefers-typescript", "parentSlug": "knowledge", "title": "User Prefers TypeScript", "body": "The user prefers TypeScript over JavaScript for all new projects."})
-   ALL fields including "body" are REQUIRED.
-4. Use ltm_update(slug, newBody, expectedVersion) to modify existing entries
-5. Be selective - only extract truly valuable, long-lasting information
-6. Call finish_consolidation(summary) when done (even if no changes were made)
+Your long-term memory is YOUR resource - a knowledge base you build to learn and improve precision over time.
+
+### What to Capture
+- User preferences and working patterns
+- Project-specific conventions and decisions
+- Technical facts about the codebase
+- Corrections to your existing knowledge
+
+### What NOT to Capture
+- Transient task details (these stay in conversation history)
+- Obvious or trivial information
+- Speculative or uncertain information
+
+### Tools Available
+- **ltm_glob(pattern)** - Browse the tree structure
+- **ltm_search(query)** - Find related entries (always search before creating!)
+- **ltm_read(slug)** - Read an entry's full content
+- **ltm_create(...)** - Create a new entry
+- **ltm_update(...)** - Replace an entry's content
+- **ltm_edit(...)** - Surgical find-replace
+- **ltm_reparent(...)** - Move entry to new parent
+- **ltm_rename(...)** - Change entry slug
+- **ltm_archive(...)** - Remove outdated entries
+
+Use [[slug]] syntax in entry bodies to cross-link related knowledge.
+
+When you're done reviewing (even if no changes needed), call **finish_consolidation** with a brief summary.
 `
 
-  return prompt
+  return content
 }
 
 /**
@@ -338,24 +413,32 @@ export async function runConsolidation(
   result.ran = true
   log.info("starting consolidation", { messageCount: messages.length })
 
-  // Get current LTM state for context
-  const identity = await storage.ltm.read("identity")
-  const behavior = await storage.ltm.read("behavior")
-  const allEntries = await storage.ltm.glob("/**")
-  const knowledge = allEntries.filter(e => e.slug !== "identity" && e.slug !== "behavior")
+  // Use the main agent's system prompt for prompt caching benefits
+  const { prompt: systemPrompt } = await buildSystemPrompt(storage)
 
-  // Build the consolidation prompt
-  const systemPrompt = buildConsolidationPrompt(messages, { identity, behavior, knowledge })
+  // Get conversation history as proper turns (same as main agent sees)
+  const historyTurns = await buildConversationHistory(storage)
+
+  // Find recently updated entries (updated in the last hour)
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const allEntries = await storage.ltm.glob("/**")
+  const recentlyUpdated = allEntries.filter(
+    (e) => e.updatedAt > oneHourAgo && e.slug !== "identity" && e.slug !== "behavior",
+  )
+
+  // Build the LTM review turn content (added as system message)
+  const reviewTurnContent = await buildLTMReviewTurn(storage, recentlyUpdated)
 
   // Get model (use workhorse tier for consolidation - Haiku is unreliable with tool schemas)
   const model = Provider.getModelForTier("workhorse")
 
   // Build tools
-  const tools = buildConsolidationTools(storage, result)
+  const tools = buildConsolidationTools()
 
-  // Agent loop
+  // Agent loop - conversation history + system message for LTM review
   const agentMessages: CoreMessage[] = [
-    { role: "user", content: "Review this conversation and extract any durable knowledge to LTM." },
+    ...historyTurns,
+    { role: "system", content: reviewTurnContent },
   ]
 
   for (let turn = 0; turn < MAX_CONSOLIDATION_TURNS; turn++) {

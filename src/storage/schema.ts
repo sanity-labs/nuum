@@ -81,7 +81,6 @@ export const ltmEntries = sqliteTable(
     path: text("path").notNull(), // Materialized path ("/react/hooks/useEffect")
     title: text("title").notNull(), // Display name
     body: text("body").notNull(), // Markdown content
-    tags: text("tags").notNull().default("[]"), // JSON array - cross-cutting labels
     links: text("links").notNull().default("[]"), // JSON array - cross-references via [[slug]]
     version: integer("version").notNull().default(1), // For CAS operations
     createdBy: text("created_by").notNull(), // 'main' | 'ltm-consolidate' | 'ltm-reflect'

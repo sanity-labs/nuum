@@ -24,10 +24,22 @@ import { Provider } from "../provider"
 import { Config } from "../config"
 import type { Storage, Task } from "../storage"
 import { Identifier } from "../id"
-import { Tool, BashTool, ReadTool, EditTool, WriteTool, GlobTool, GrepTool } from "../tool"
+import {
+  Tool,
+  BashTool,
+  ReadTool,
+  EditTool,
+  WriteTool,
+  GlobTool,
+  GrepTool,
+  LTMGlobTool,
+  LTMSearchTool,
+  LTMReadTool,
+  type LTMToolContext,
+} from "../tool"
 import {
   buildTemporalView,
-  renderTemporalView,
+  reconstructHistoryAsTurns,
   shouldTriggerCompaction,
   runCompactionWorker,
   createSummarizationLLM,
@@ -75,10 +87,11 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Build the system prompt including memory state.
- * Uses temporal view with summaries for efficient context usage.
+ * Build the system prompt (identity, behavior, instructions only).
+ * Temporal history is now reconstructed as proper conversation turns.
+ * Exported so background agents (consolidation, etc.) can reuse it for prompt caching.
  */
-async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; tokens: number }> {
+export async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; tokens: number }> {
   // Get identity and behavior from LTM
   const identity = await storage.ltm.read("identity")
   const behavior = await storage.ltm.read("behavior")
@@ -86,22 +99,7 @@ async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; to
   // Get present state
   const present = await storage.present.get()
 
-  // Get temporal history using the temporal view (with summaries)
-  const config = Config.get()
-  const temporalBudget = config.tokenBudgets.temporalBudget
-
-  // Fetch messages and summaries for temporal view
-  const allMessages = await storage.temporal.getMessages()
-  const allSummaries = await storage.temporal.getSummaries()
-
-  // Build temporal view that fits within budget
-  const temporalView = buildTemporalView({
-    budget: temporalBudget,
-    messages: allMessages,
-    summaries: allSummaries,
-  })
-
-  // Build system prompt
+  // Build system prompt (no temporal history - that goes in conversation turns)
   let prompt = `You are a coding assistant with persistent memory.
 
 Your memory spans across conversations, allowing you to remember past decisions, track ongoing projects, and learn user preferences.
@@ -126,17 +124,6 @@ ${behavior.body}
 `
   }
 
-  // Add temporal history using rendered view (includes summaries + recent messages)
-  if (temporalView.summaries.length > 0 || temporalView.messages.length > 0) {
-    prompt += `<conversation_history>
-The following is your memory of previous interactions with this user:
-
-${renderTemporalView(temporalView)}
-</conversation_history>
-
-`
-  }
-
   // Add present state
   prompt += `<present_state>
 <mission>${present.mission ?? "(none)"}</mission>
@@ -156,9 +143,46 @@ ${renderTemporalView(temporalView)}
 Use tools to accomplish tasks. Always explain what you're doing.
 
 When you're done with a task, update the present state if appropriate.
+
+## Long-Term Memory
+
+You have a knowledge base managed by a background process. It extracts important information from conversations and maintains organized knowledge.
+
+To recall information:
+- ltm_glob(pattern) - browse the knowledge tree structure
+- ltm_search(query) - find relevant entries
+- ltm_read(slug) - read a specific entry
+
+Knowledge entries may contain [[slug]] cross-references to related entries. Follow these links to explore connected knowledge.
+
+You do NOT manage this memory directly. Focus on your work - memory happens automatically.
+Your /identity and /behavior entries are always visible to guide you.
 `
 
   return { prompt, tokens: estimateTokens(prompt) }
+}
+
+/**
+ * Build the conversation history as proper CoreMessage[] turns.
+ * This replaces the old approach of stuffing history into the system prompt.
+ */
+export async function buildConversationHistory(storage: Storage): Promise<CoreMessage[]> {
+  const config = Config.get()
+  const temporalBudget = config.tokenBudgets.temporalBudget
+
+  // Fetch messages and summaries for temporal view
+  const allMessages = await storage.temporal.getMessages()
+  const allSummaries = await storage.temporal.getSummaries()
+
+  // Build temporal view that fits within budget
+  const temporalView = buildTemporalView({
+    budget: temporalBudget,
+    messages: allMessages,
+    summaries: allSummaries,
+  })
+
+  // Reconstruct as proper conversation turns
+  return reconstructHistoryAsTurns(temporalView)
 }
 
 /**
@@ -232,6 +256,23 @@ function buildTools(): Record<string, CoreTool> {
     }),
   })
 
+  // LTM retrieval tools (read-only access to knowledge base)
+  // Use shared tool definitions from src/tool/ltm.ts
+  tools.ltm_glob = tool({
+    description: LTMGlobTool.definition.description,
+    parameters: LTMGlobTool.definition.parameters,
+  })
+
+  tools.ltm_search = tool({
+    description: LTMSearchTool.definition.description,
+    parameters: LTMSearchTool.definition.parameters,
+  })
+
+  tools.ltm_read = tool({
+    description: LTMReadTool.definition.description,
+    parameters: LTMReadTool.definition.parameters,
+  })
+
   return tools
 }
 
@@ -294,6 +335,59 @@ async function executeTool(
       await storage.present.setTasks(tasks)
       return `Tasks updated (${tasks.length} tasks)`
     }
+    // LTM retrieval tools - use shared implementations
+    case "ltm_glob": {
+      const ltmCtx = Tool.createContext({
+        sessionID: sessionId,
+        messageID: messageId,
+        callID: callId,
+        abort: abortSignal,
+      })
+      // Inject LTM context
+      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
+        ltm: storage.ltm,
+        agentType: "main",
+      }
+      const result = await LTMGlobTool.definition.execute(
+        args as z.infer<typeof LTMGlobTool.definition.parameters>,
+        ltmCtx as Tool.Context & { extra: LTMToolContext },
+      )
+      return result.output
+    }
+    case "ltm_search": {
+      const ltmCtx = Tool.createContext({
+        sessionID: sessionId,
+        messageID: messageId,
+        callID: callId,
+        abort: abortSignal,
+      })
+      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
+        ltm: storage.ltm,
+        agentType: "main",
+      }
+      const result = await LTMSearchTool.definition.execute(
+        args as z.infer<typeof LTMSearchTool.definition.parameters>,
+        ltmCtx as Tool.Context & { extra: LTMToolContext },
+      )
+      return result.output
+    }
+    case "ltm_read": {
+      const ltmCtx = Tool.createContext({
+        sessionID: sessionId,
+        messageID: messageId,
+        callID: callId,
+        abort: abortSignal,
+      })
+      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
+        ltm: storage.ltm,
+        agentType: "main",
+      }
+      const result = await LTMReadTool.definition.execute(
+        args as z.infer<typeof LTMReadTool.definition.parameters>,
+        ltmCtx as Tool.Context & { extra: LTMToolContext },
+      )
+      return result.output
+    }
     default:
       throw new Error(`Unknown tool: ${toolName}`)
   }
@@ -330,14 +424,18 @@ export async function runAgent(
   // Get the model
   const model = Provider.getModelForTier("reasoning")
 
-  // Build system prompt
+  // Build system prompt (identity, behavior, instructions - cacheable)
   const { prompt: systemPrompt } = await buildSystemPrompt(storage)
+
+  // Build conversation history as proper turns
+  const historyTurns = await buildConversationHistory(storage)
 
   // Build tools
   const tools = buildTools()
 
-  // Initialize messages with user prompt
+  // Initialize messages with history + current user prompt
   const messages: CoreMessage[] = [
+    ...historyTurns,
     { role: "user", content: prompt },
   ]
 
