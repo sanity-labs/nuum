@@ -20,6 +20,7 @@ export {
 // Temporal view construction
 export {
   buildTemporalView,
+  reconstructHistoryAsTurns,
   renderTemporalView,
   type TemporalView,
   type BuildTemporalViewOptions,

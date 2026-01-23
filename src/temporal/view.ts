@@ -1,13 +1,20 @@
 /**
  * Temporal view construction.
  *
- * Builds the temporal context that goes into the agent's system prompt.
+ * Builds the temporal context as proper conversation turns (CoreMessage[]).
  * The view must fit within token budget while prioritizing recent content.
  *
  * Token distribution (from arch spec):
  * [Oldest summaries: ~10%] [Mid-history: ~20%] [Recent summaries: ~30%] [Raw messages: ~40%]
  */
 
+import type {
+  CoreMessage,
+  CoreAssistantMessage,
+  CoreToolMessage,
+  ToolCallPart,
+  ToolResultPart,
+} from "ai"
 import type { TemporalMessage, TemporalSummary } from "../storage/schema"
 import { isCoveredBySummary, isSubsumedByHigherOrder } from "./coverage"
 
@@ -124,7 +131,175 @@ export function buildTemporalView(options: BuildTemporalViewOptions): TemporalVi
 }
 
 /**
+ * Reconstruct temporal history as proper CoreMessage[] turns.
+ *
+ * This converts the temporal view into actual conversation turns that the
+ * model can understand natively, rather than serializing everything into
+ * the system prompt.
+ *
+ * Summaries are inserted as system messages at the appropriate position
+ * in the conversation flow.
+ */
+export function reconstructHistoryAsTurns(view: TemporalView): CoreMessage[] {
+  const turns: CoreMessage[] = []
+
+  // Interleave summaries and messages chronologically
+  // Both are already sorted by their IDs (chronological order)
+  let summaryIdx = 0
+  let messageIdx = 0
+
+  while (summaryIdx < view.summaries.length || messageIdx < view.messages.length) {
+    const summary = view.summaries[summaryIdx]
+    const message = view.messages[messageIdx]
+
+    // Determine which comes first chronologically
+    // Summaries use startId for ordering, messages use id
+    const summaryKey = summary?.startId
+    const messageKey = message?.id
+
+    if (summaryKey && (!messageKey || summaryKey < messageKey)) {
+      // Insert summary as a system message
+      const observations = JSON.parse(summary.keyObservations) as string[]
+      let summaryContent = `[Summary of earlier conversation]\n${summary.narrative}`
+      if (observations.length > 0) {
+        summaryContent += "\n\nKey points:\n" + observations.map(o => `- ${o}`).join("\n")
+      }
+
+      turns.push({
+        role: "user",
+        content: `[SYSTEM: ${summaryContent}]`,
+      })
+      // Add a placeholder assistant acknowledgment to maintain turn structure
+      turns.push({
+        role: "assistant",
+        content: "(Acknowledged previous context)",
+      })
+      summaryIdx++
+    } else if (messageKey) {
+      // Process message based on type
+      const processed = processMessageForTurn(message, view.messages, messageIdx)
+      if (processed.turns.length > 0) {
+        turns.push(...processed.turns)
+      }
+      messageIdx = processed.nextIdx
+    } else {
+      break
+    }
+  }
+
+  return turns
+}
+
+/**
+ * Process a message and potentially following related messages into CoreMessage turns.
+ * Groups tool_call + tool_result sequences together.
+ */
+function processMessageForTurn(
+  message: TemporalMessage,
+  allMessages: TemporalMessage[],
+  currentIdx: number,
+): { turns: CoreMessage[]; nextIdx: number } {
+  const turns: CoreMessage[] = []
+
+  switch (message.type) {
+    case "user":
+      turns.push({ role: "user", content: message.content })
+      return { turns, nextIdx: currentIdx + 1 }
+
+    case "assistant": {
+      // Check if next messages are tool calls from same assistant turn
+      const toolCalls: ToolCallPart[] = []
+      const toolResults: ToolResultPart[] = []
+      let nextIdx = currentIdx + 1
+
+      // Look ahead for tool_call messages
+      while (nextIdx < allMessages.length && allMessages[nextIdx].type === "tool_call") {
+        const toolCallMsg = allMessages[nextIdx]
+        try {
+          const parsed = JSON.parse(toolCallMsg.content) as { name: string; args: unknown; toolCallId?: string }
+          toolCalls.push({
+            type: "tool-call",
+            toolCallId: parsed.toolCallId || `call_${nextIdx}`,
+            toolName: parsed.name,
+            args: parsed.args as Record<string, unknown>,
+          })
+        } catch {
+          // Skip malformed tool calls
+        }
+        nextIdx++
+      }
+
+      // Look ahead for corresponding tool_result messages
+      while (nextIdx < allMessages.length && allMessages[nextIdx].type === "tool_result") {
+        const toolResultMsg = allMessages[nextIdx]
+        const correspondingCall = toolCalls[toolResults.length]
+        if (correspondingCall) {
+          toolResults.push({
+            type: "tool-result",
+            toolCallId: correspondingCall.toolCallId,
+            toolName: correspondingCall.toolName,
+            result: toolResultMsg.content,
+          })
+        }
+        nextIdx++
+      }
+
+      if (toolCalls.length > 0) {
+        // Assistant message with tool calls
+        const assistantContent: (ToolCallPart | { type: "text"; text: string })[] = []
+        if (message.content) {
+          assistantContent.push({ type: "text", text: message.content })
+        }
+        assistantContent.push(...toolCalls)
+
+        const assistantMsg: CoreAssistantMessage = {
+          role: "assistant",
+          content: assistantContent,
+        }
+        turns.push(assistantMsg)
+
+        // Tool results
+        if (toolResults.length > 0) {
+          const toolMsg: CoreToolMessage = {
+            role: "tool",
+            content: toolResults,
+          }
+          turns.push(toolMsg)
+        }
+      } else {
+        // Simple assistant message without tools
+        turns.push({ role: "assistant", content: message.content })
+      }
+
+      return { turns, nextIdx }
+    }
+
+    case "tool_call":
+    case "tool_result":
+      // These should be consumed by the assistant case above
+      // If we hit them standalone, skip (orphaned)
+      return { turns: [], nextIdx: currentIdx + 1 }
+
+    case "system":
+      // System messages become user messages with [SYSTEM:] prefix
+      turns.push({
+        role: "user",
+        content: `[SYSTEM: ${message.content}]`,
+      })
+      turns.push({
+        role: "assistant",
+        content: "(Acknowledged)",
+      })
+      return { turns, nextIdx: currentIdx + 1 }
+
+    default:
+      return { turns: [], nextIdx: currentIdx + 1 }
+  }
+}
+
+/**
  * Render the temporal view as XML for the system prompt.
+ * @deprecated Use reconstructHistoryAsTurns instead for proper conversation turns.
  */
 export function renderTemporalView(view: TemporalView): string {
   if (view.summaries.length === 0 && view.messages.length === 0) {

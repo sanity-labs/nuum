@@ -48,7 +48,7 @@ import {
   renderCompactTree,
   type LTMToolContext,
 } from "../tool"
-import { buildSystemPrompt } from "../agent"
+import { buildSystemPrompt, buildConversationHistory } from "../agent"
 
 const log = Log.create({ service: "consolidation-agent" })
 
@@ -312,7 +312,7 @@ async function executeConsolidationTool(
 
 /**
  * Build the LTM review turn content.
- * This is added as a user message to continue the main agent's conversation.
+ * This is added as a system message to continue the main agent's conversation.
  */
 async function buildLTMReviewTurn(
   storage: Storage,
@@ -416,6 +416,9 @@ export async function runConsolidation(
   // Use the main agent's system prompt for prompt caching benefits
   const { prompt: systemPrompt } = await buildSystemPrompt(storage)
 
+  // Get conversation history as proper turns (same as main agent sees)
+  const historyTurns = await buildConversationHistory(storage)
+
   // Find recently updated entries (updated in the last hour)
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const allEntries = await storage.ltm.glob("/**")
@@ -423,7 +426,7 @@ export async function runConsolidation(
     (e) => e.updatedAt > oneHourAgo && e.slug !== "identity" && e.slug !== "behavior",
   )
 
-  // Build the LTM review turn content
+  // Build the LTM review turn content (added as system message)
   const reviewTurnContent = await buildLTMReviewTurn(storage, recentlyUpdated)
 
   // Get model (use workhorse tier for consolidation - Haiku is unreliable with tool schemas)
@@ -432,9 +435,10 @@ export async function runConsolidation(
   // Build tools
   const tools = buildConsolidationTools()
 
-  // Agent loop - starts with the LTM review turn as if continuing the main conversation
+  // Agent loop - conversation history + system message for LTM review
   const agentMessages: CoreMessage[] = [
-    { role: "user", content: reviewTurnContent },
+    ...historyTurns,
+    { role: "system", content: reviewTurnContent },
   ]
 
   for (let turn = 0; turn < MAX_CONSOLIDATION_TURNS; turn++) {

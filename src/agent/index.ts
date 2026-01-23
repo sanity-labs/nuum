@@ -39,7 +39,7 @@ import {
 } from "../tool"
 import {
   buildTemporalView,
-  renderTemporalView,
+  reconstructHistoryAsTurns,
   shouldTriggerCompaction,
   runCompactionWorker,
   createSummarizationLLM,
@@ -87,8 +87,8 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Build the system prompt including memory state.
- * Uses temporal view with summaries for efficient context usage.
+ * Build the system prompt (identity, behavior, instructions only).
+ * Temporal history is now reconstructed as proper conversation turns.
  * Exported so background agents (consolidation, etc.) can reuse it for prompt caching.
  */
 export async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; tokens: number }> {
@@ -99,22 +99,7 @@ export async function buildSystemPrompt(storage: Storage): Promise<{ prompt: str
   // Get present state
   const present = await storage.present.get()
 
-  // Get temporal history using the temporal view (with summaries)
-  const config = Config.get()
-  const temporalBudget = config.tokenBudgets.temporalBudget
-
-  // Fetch messages and summaries for temporal view
-  const allMessages = await storage.temporal.getMessages()
-  const allSummaries = await storage.temporal.getSummaries()
-
-  // Build temporal view that fits within budget
-  const temporalView = buildTemporalView({
-    budget: temporalBudget,
-    messages: allMessages,
-    summaries: allSummaries,
-  })
-
-  // Build system prompt
+  // Build system prompt (no temporal history - that goes in conversation turns)
   let prompt = `You are a coding assistant with persistent memory.
 
 Your memory spans across conversations, allowing you to remember past decisions, track ongoing projects, and learn user preferences.
@@ -135,17 +120,6 @@ ${identity.body}
     prompt += `<behavior>
 ${behavior.body}
 </behavior>
-
-`
-  }
-
-  // Add temporal history using rendered view (includes summaries + recent messages)
-  if (temporalView.summaries.length > 0 || temporalView.messages.length > 0) {
-    prompt += `<conversation_history>
-The following is your memory of previous interactions with this user:
-
-${renderTemporalView(temporalView)}
-</conversation_history>
 
 `
   }
@@ -186,6 +160,29 @@ Your /identity and /behavior entries are always visible to guide you.
 `
 
   return { prompt, tokens: estimateTokens(prompt) }
+}
+
+/**
+ * Build the conversation history as proper CoreMessage[] turns.
+ * This replaces the old approach of stuffing history into the system prompt.
+ */
+export async function buildConversationHistory(storage: Storage): Promise<CoreMessage[]> {
+  const config = Config.get()
+  const temporalBudget = config.tokenBudgets.temporalBudget
+
+  // Fetch messages and summaries for temporal view
+  const allMessages = await storage.temporal.getMessages()
+  const allSummaries = await storage.temporal.getSummaries()
+
+  // Build temporal view that fits within budget
+  const temporalView = buildTemporalView({
+    budget: temporalBudget,
+    messages: allMessages,
+    summaries: allSummaries,
+  })
+
+  // Reconstruct as proper conversation turns
+  return reconstructHistoryAsTurns(temporalView)
 }
 
 /**
@@ -427,14 +424,18 @@ export async function runAgent(
   // Get the model
   const model = Provider.getModelForTier("reasoning")
 
-  // Build system prompt
+  // Build system prompt (identity, behavior, instructions - cacheable)
   const { prompt: systemPrompt } = await buildSystemPrompt(storage)
+
+  // Build conversation history as proper turns
+  const historyTurns = await buildConversationHistory(storage)
 
   // Build tools
   const tools = buildTools()
 
-  // Initialize messages with user prompt
+  // Initialize messages with history + current user prompt
   const messages: CoreMessage[] = [
+    ...historyTurns,
     { role: "user", content: prompt },
   ]
 
