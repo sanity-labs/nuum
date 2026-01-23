@@ -7,7 +7,8 @@
 
 import { createStorage, initializeDefaultEntries, type Storage } from "../storage"
 import { runAgent, type AgentEvent } from "../agent"
-import { VerboseOutput, type MemoryStats, type TokenBudget } from "./verbose"
+import { VerboseOutput, type MemoryStats, type TokenBudget, type SummaryOrderStats } from "./verbose"
+import { buildTemporalView } from "../temporal"
 import { Config } from "../config"
 
 export interface BatchOptions {
@@ -38,10 +39,52 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   const identity = await storage.ltm.read("identity")
   const behavior = await storage.ltm.read("behavior")
 
+  // Calculate total message tokens
+  const totalMessageTokens = messages.reduce((sum, m) => sum + m.tokenEstimate, 0)
+
+  // Calculate summary stats by order
+  const summariesByOrder: SummaryOrderStats[] = []
+  const orderMap = new Map<number, { count: number; tokens: number }>()
+
+  for (const summary of summaries) {
+    const existing = orderMap.get(summary.orderNum) ?? { count: 0, tokens: 0 }
+    existing.count++
+    existing.tokens += summary.tokenEstimate
+    orderMap.set(summary.orderNum, existing)
+  }
+
+  // Convert to array and add coverage estimates
+  for (const [order, stats] of orderMap.entries()) {
+    const orderStats: SummaryOrderStats = {
+      order,
+      count: stats.count,
+      totalTokens: stats.tokens,
+    }
+
+    // Estimate coverage (rough approximation)
+    if (order === 1) {
+      // Order-1 covers ~20 messages each on average
+      orderStats.coveringMessages = stats.count * 20
+    } else {
+      // Higher orders cover ~5 lower-order summaries each
+      orderStats.coveringSummaries = stats.count * 5
+    }
+
+    summariesByOrder.push(orderStats)
+  }
+
+  // Sort by order
+  summariesByOrder.sort((a, b) => a.order - b.order)
+
+  const totalSummaryTokens = summaries.reduce((sum, s) => sum + s.tokenEstimate, 0)
+
   return {
     totalMessages: messages.length,
     totalSummaries: summaries.length,
+    summariesByOrder,
     uncompactedTokens,
+    totalMessageTokens,
+    totalSummaryTokens,
     temporalBudget: config.tokenBudgets.compactionThreshold,
     ltmEntries: ltmEntries.length,
     identityTokens: identity ? estimateTokens(identity.body) : 0,
@@ -52,26 +95,39 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
 /**
  * Calculate token budget for verbose output.
  */
-function calculateTokenBudget(stats: MemoryStats): TokenBudget {
+async function calculateTokenBudget(stats: MemoryStats, storage: Storage): Promise<TokenBudget> {
   const config = Config.get()
   const total = config.tokenBudgets.mainAgentContext
+
+  // Build temporal view to get actual token usage breakdown
+  const messages = await storage.temporal.getMessages()
+  const summaries = await storage.temporal.getSummaries()
+  const temporalView = buildTemporalView({
+    budget: config.tokenBudgets.temporalBudget,
+    messages,
+    summaries,
+  })
 
   // Rough estimates for system components
   const systemPrompt = 500 // Base instructions
   const identity = stats.identityTokens
   const behavior = stats.behaviorTokens
-  const temporalView = Math.min(stats.uncompactedTokens, config.tokenBudgets.temporalBudget)
+  const temporalSummaries = temporalView.summaries.reduce((sum, s) => sum + s.tokenEstimate, 0)
+  const temporalMessages = temporalView.messages.reduce((sum, m) => sum + m.tokenEstimate, 0)
+  const temporalViewTokens = temporalSummaries + temporalMessages
   const present = 200 // Mission/status/tasks
   const tools = 2000 // Tool descriptions
 
-  const used = systemPrompt + identity + behavior + temporalView + present + tools
+  const used = systemPrompt + identity + behavior + temporalViewTokens + present + tools
 
   return {
     total,
     systemPrompt,
     identity,
     behavior,
-    temporalView,
+    temporalView: temporalViewTokens,
+    temporalSummaries,
+    temporalMessages,
     present,
     tools,
     used,
@@ -98,7 +154,7 @@ export async function runBatch(options: BatchOptions): Promise<void> {
 
     if (options.verbose) {
       verbose.memoryStateBefore(statsBefore, presentBefore)
-      verbose.tokenBudget(calculateTokenBudget(statsBefore))
+      verbose.tokenBudget(await calculateTokenBudget(statsBefore, storage))
       verbose.executionStart()
     }
 
