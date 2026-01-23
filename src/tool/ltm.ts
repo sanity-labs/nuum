@@ -419,21 +419,21 @@ On version conflict: Error shows current version. Re-read and retry.`,
 export const LTMEditTool = Tool.define<
   z.ZodObject<{
     slug: z.ZodString
-    oldText: z.ZodString
-    newText: z.ZodString
+    oldString: z.ZodString
+    newString: z.ZodString
     expectedVersion: z.ZodNumber
   }>,
   LTMMetadata
 >("ltm_edit", {
   description: `Surgical find-replace within an entry. Use for precise edits.
 
-Requires EXACT match of oldText (must appear exactly once).
+Requires EXACT match of oldString (must appear exactly once).
 For full rewrites, use ltm_update instead.
 
 Example: ltm_edit({
   slug: "react-hooks",
-  oldText: "useState hook",
-  newText: "useState and useReducer hooks",
+  oldString: "useState hook",
+  newString: "useState and useReducer hooks",
   expectedVersion: 3
 })
 
@@ -441,19 +441,19 @@ On version conflict: Error shows current version - re-read and retry.`,
 
   parameters: z.object({
     slug: z.string().describe("The entry slug to edit"),
-    oldText: z.string().describe("Exact text to find (must match exactly once)"),
-    newText: z.string().describe("Replacement text"),
+    oldString: z.string().describe("Exact text to find (must match exactly once)"),
+    newString: z.string().describe("Replacement text"),
     expectedVersion: z.number().describe("Expected current version (from ltm_read)"),
   }),
 
   async execute(args, ctx) {
     const { ltm, agentType } = ctx.extra as unknown as LTMToolContext
-    const { slug, oldText, newText, expectedVersion } = args
+    const { slug, oldString, newString, expectedVersion } = args
 
     ctx.metadata({ title: `ltm_edit("${slug}")`, metadata: { entrySlug: slug, operation: "edit" } })
 
     try {
-      await ltm.edit(slug, oldText, newText, expectedVersion, agentType)
+      await ltm.edit(slug, oldString, newString, expectedVersion, agentType)
 
       return {
         title: `ltm_edit("${slug}")`,
