@@ -417,11 +417,10 @@ export async function runCompact(dbPath: string): Promise<void> {
   console.log()
 
   if (tokensBefore <= target) {
-    console.log(`Already under target - no compaction needed.`)
-    return
+    console.log(`Already under target, but running anyway (forced)...`)
+  } else {
+    console.log(`Running memory curation...`)
   }
-
-  console.log(`Running memory curation...`)
   console.log()
 
   const result = await runMemoryCuration(storage, { force: true })
