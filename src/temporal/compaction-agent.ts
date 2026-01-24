@@ -66,9 +66,11 @@ export interface CompactionResult {
  */
 export interface CompactionConfig {
   /** Trigger compaction when uncompacted tokens exceed this threshold */
-  compactionThreshold: number;
+  compactionThreshold: number
   /** Target token count after compaction completes */
-  compactionTarget: number;
+  compactionTarget: number
+  /** Force run even if already under target */
+  force?: boolean
 }
 
 /**
@@ -409,7 +411,7 @@ export async function runCompaction(
   // Get initial token count (effective view = what actually goes to agent)
   result.tokensBefore = await getEffectiveViewTokens(storage.temporal);
 
-  if (result.tokensBefore <= config.compactionTarget) {
+  if (result.tokensBefore <= config.compactionTarget && !config.force) {
     log.info("skipping compaction - already under target", {
       current: result.tokensBefore,
       target: config.compactionTarget,

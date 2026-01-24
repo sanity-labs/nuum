@@ -105,7 +105,7 @@ export async function runMemoryCuration(
     result.consolidation = await runLTMConsolidation(storage)
 
     // Phase 2: Distillation
-    result.distillation = await runDistillation(storage, threshold, target)
+    result.distillation = await runDistillation(storage, threshold, target, options.force)
 
     return result
   } finally {
@@ -156,6 +156,7 @@ async function runDistillation(
   storage: Storage,
   threshold: number,
   target: number,
+  force?: boolean,
 ): Promise<CompactionResult | undefined> {
   const tokensBefore = await getEffectiveViewTokens(storage.temporal)
   
@@ -168,6 +169,7 @@ async function runDistillation(
     const result = await runCompactionWorker(storage, {
       compactionThreshold: threshold,
       compactionTarget: target,
+      force,
     })
 
     activity.distillation.tokens(
