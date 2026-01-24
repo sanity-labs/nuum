@@ -4,6 +4,17 @@ An AI coding agent with continuous memory — infinite context across sessions.
 
 *Nuum* — from "continuum" — maintains persistent memory across conversations, learning your codebase, preferences, and decisions over time.
 
+## Design Philosophy
+
+Nuum is **optimized for embedding**. While it can run standalone, it's designed to be integrated into host applications, IDEs, and orchestration platforms via a simple **NDJSON-over-stdio** protocol.
+
+- **Stateless process, stateful memory** — The process can restart anytime; all state lives in SQLite
+- **Simple wire protocol** — JSON messages over stdin/stdout, easy to integrate from any language
+- **Mid-turn injection** — Send corrections while the agent is working; they're injected into the conversation
+- **Persistent identity** — One database = one agent with continuous memory forever
+
+See [docs/protocol.md](docs/protocol.md) for the full wire protocol specification.
+
 ## Installation
 
 ```bash
@@ -14,70 +25,50 @@ bunx @miriad-systems/nuum
 npx @miriad-systems/nuum
 ```
 
-## Overview
-
-Nuum is designed for extended coding sessions where context preservation matters. It manages three tiers of memory:
-
-- **Temporal Memory** — Chronological log of all agent experience, distilled over time to retain actionable intelligence
-- **Present Memory** — Current mission, status, and task list for situational awareness
-- **Long-Term Memory (LTM)** — Hierarchical knowledge base of durable facts and preferences
-
 ## Usage
+
+### Embedded Mode (for host applications)
+
+```bash
+nuum --stdio              # NDJSON protocol over stdin/stdout
+nuum --stdio --db ./my.db # With custom database
+```
+
+Send JSON messages to stdin, receive responses on stdout:
+
+```json
+→ {"type":"user","message":{"role":"user","content":"Hello"}}
+← {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello! How can I help?"}]},"session_id":"nuum_01JD..."}
+← {"type":"result","subtype":"success","duration_ms":800,"session_id":"nuum_01JD..."}
+```
 
 ### Interactive Mode
 
 ```bash
-# Start interactive session
-nuum
-
-# With a specific database
-nuum --db ./my-project.db
+nuum                      # Start interactive session
+nuum --db ./my-project.db # With specific database
 ```
 
 ### Batch Mode
 
 ```bash
-# Simple prompt
 nuum -p "What is 2+2?"
-
-# Execute shell commands
-nuum -p "List all TypeScript files in the src directory"
-
-# Read and analyze files
 nuum -p "Read src/index.ts and explain what it does"
-```
-
-### Verbose Mode
-
-```bash
-# Show memory state, token budget, and execution trace
 nuum -p "Refactor the auth module" --verbose
-```
-
-### Persistent Memory
-
-The agent remembers across invocations when using the same database:
-
-```bash
-# First invocation - store information
-nuum -p "Remember: my favorite color is blue" --db=./session.db
-
-# Second invocation - recall information  
-nuum -p "What is my favorite color?" --db=./session.db
-# Agent will recall: "Your favorite color is blue"
 ```
 
 ### CLI Reference
 
 ```
 nuum                          Start interactive session
-nuum -p "prompt"              Run with a prompt (batch mode)
-nuum -p "prompt" --verbose    Show debug output
+nuum --stdio                  Embedded mode (NDJSON protocol)
+nuum -p "prompt"              Batch mode
 nuum --help                   Show help
 
 Options:
-  -p, --prompt <text>   The prompt to send
-  -v, --verbose         Show memory state, token usage, execution trace
+  -p, --prompt <text>   Run with a prompt (batch mode)
+  -v, --verbose         Show memory state and debug output
+      --stdio           NDJSON protocol mode for embedding
       --db <path>       SQLite database path (default: ./agent.db)
       --format <type>   Output format: text or json (default: text)
   -h, --help            Show help message
@@ -85,68 +76,55 @@ Options:
 
 ## Configuration
 
-Only `ANTHROPIC_API_KEY` is required. All other settings have sensible defaults:
+Only `ANTHROPIC_API_KEY` is required:
 
 ```bash
 # Required
 ANTHROPIC_API_KEY=your-key-here
 
 # Optional (defaults shown)
-AGENT_PROVIDER=anthropic
 AGENT_MODEL_REASONING=claude-opus-4-5-20251101
 AGENT_MODEL_WORKHORSE=claude-sonnet-4-5-20250929
 AGENT_MODEL_FAST=claude-haiku-4-5-20251001
 AGENT_DB=./agent.db
 ```
 
-## Development
-
-```bash
-# Install dependencies
-bun install
-
-# Run in development
-bun run dev
-
-# Type check
-bun run typecheck
-
-# Run tests
-bun test
-
-# Build
-bun run build
-```
-
 ## How Memory Works
 
 ### Temporal Memory (Working Memory)
-Every message is logged chronologically. As the conversation grows, older content is **distilled** — not summarized narratively, but compressed to retain actionable intelligence: file paths, decisions and their rationale, user preferences, specific values.
+Every message is logged chronologically. As the conversation grows, older content is **distilled** — compressed to retain actionable intelligence: file paths, decisions and rationale, user preferences, specific values.
 
 ### Present State
-Tracks the current mission, status, and task list. Updated by the agent as work progresses. Always visible in context for situational awareness.
+Tracks the current mission, status, and task list. Updated by the agent as work progresses. Always visible in context.
 
-### Long-Term Memory
-A hierarchical knowledge base that persists across sessions. The agent can read, search, and (via background workers) write to LTM. Contains identity, behavioral guidelines, and accumulated knowledge.
+### Long-Term Memory (LTM)
+A hierarchical knowledge base that persists across sessions. Contains identity, behavioral guidelines, and accumulated knowledge. Background workers consolidate important information from conversations into LTM.
+
+## Development
+
+```bash
+bun install          # Install dependencies
+bun run dev          # Run in development
+bun run typecheck    # Type check
+bun test             # Run tests
+bun run build        # Build for distribution
+```
 
 ## Acknowledgments
 
 ### Letta (formerly MemGPT)
 
-The memory architecture is influenced by [Letta](https://github.com/letta-ai/letta):
-
-- **Core memory always in context** — identity and behavioral guidelines always present
-- **Agent-editable memory** — agents can modify their own knowledge stores
-- **Background memory workers** — async memory consolidation
+Memory architecture influenced by [Letta](https://github.com/letta-ai/letta):
+- Core memory always in context
+- Agent-editable memory
+- Background memory workers
 
 ### OpenCode
 
 Infrastructure adapted from [OpenCode](https://github.com/anthropics/opencode):
-
 - Tool definition patterns
 - Permission system
 - Process management
-- AI SDK integration
 
 ## License
 
