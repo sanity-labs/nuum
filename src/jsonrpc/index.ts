@@ -208,6 +208,12 @@ export class Server {
       await this.storage.session.setSystemPromptOverlay(userMessage.system_prompt || null)
     }
 
+    // If CAST provided mcp_servers, reinitialize MCP with merged config
+    // Priority: message config > env var > file
+    if (userMessage.mcp_servers !== undefined) {
+      await this.reinitializeMcpWithOverride(userMessage.mcp_servers)
+    }
+
     this.currentTurn = {
       sessionId,
       abortController,
@@ -352,6 +358,32 @@ export class Server {
           )
         }
         break
+    }
+  }
+
+  /**
+   * Reinitialize MCP with message-provided config override.
+   * Merges with base config (env var > file), message takes precedence.
+   * Only reinitializes if the merged config differs from current.
+   */
+  private async reinitializeMcpWithOverride(mcpServers: Record<string, unknown>): Promise<void> {
+    // Load base config (env var > file)
+    const baseConfig = await Mcp.loadConfig()
+    
+    // Merge: message config overrides base config
+    const mergedConfig: Mcp.ConfigType = {
+      mcpServers: {
+        ...baseConfig.mcpServers,
+        ...mcpServers as Record<string, Mcp.ServerConfig>,
+      },
+    }
+    
+    // Initialize will skip if config hash unchanged
+    const reinitialized = await Mcp.initialize(mergedConfig)
+    if (reinitialized) {
+      log.info("MCP reinitialized with message config", { 
+        serverCount: Object.keys(mergedConfig.mcpServers ?? {}).length 
+      })
     }
   }
 

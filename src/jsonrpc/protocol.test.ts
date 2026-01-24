@@ -58,6 +58,17 @@ describe("parseInputMessage", () => {
         expect(result.message.system_prompt).toBe("Always respond in French.")
       }
     })
+
+    test("parses user message with mcp_servers", () => {
+      const line = '{"type":"user","message":{"role":"user","content":"Hello"},"mcp_servers":{"my-server":{"command":"node","args":["server.js"]}}}'
+      const result = parseInputMessage(line)
+      expect("message" in result).toBe(true)
+      if ("message" in result && isUserMessage(result.message)) {
+        expect(result.message.mcp_servers).toEqual({
+          "my-server": { command: "node", args: ["server.js"] }
+        })
+      }
+    })
   })
 
   describe("control requests", () => {

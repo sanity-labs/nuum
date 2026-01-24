@@ -45,6 +45,8 @@ export const UserMessageSchema = z.object({
   session_id: z.string().optional(),
   /** CAST-provided addition to base system prompt (stored, persists across messages) */
   system_prompt: z.string().optional(),
+  /** CAST-provided MCP server config (takes precedence over env/file config) */
+  mcp_servers: z.record(z.unknown()).optional(),
 })
 
 export const ControlRequestSchema = z.object({
