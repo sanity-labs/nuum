@@ -132,5 +132,43 @@ export function runMigrations(db: RawDatabase): { applied: string[]; skipped: st
     log.info("migrations complete", { applied: result.applied.length })
   }
   
+  // Always rebuild FTS indexes to ensure they're in sync
+  // This is fast and ensures search works correctly even if
+  // the content tables were modified outside of triggers
+  rebuildFTSIndexes(db)
+  
   return result
+}
+
+/**
+ * Rebuild FTS indexes to ensure they're in sync with content tables.
+ * 
+ * FTS5 content tables can get out of sync if:
+ * - Triggers didn't fire (e.g., bulk inserts before triggers existed)
+ * - Database was restored from backup
+ * - Manual modifications to content tables
+ * 
+ * The rebuild command repopulates the FTS index from the content table.
+ */
+function rebuildFTSIndexes(db: RawDatabase): void {
+  try {
+    // Check if FTS tables exist before trying to rebuild
+    const tables = (db as any).prepare?.("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_fts'")?.all?.()
+      ?? (db as any).query?.("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_fts'")?.all?.()
+      ?? []
+    
+    for (const table of tables) {
+      const tableName = table.name
+      try {
+        db.exec(`INSERT INTO ${tableName}(${tableName}) VALUES('rebuild')`)
+        log.debug("rebuilt FTS index", { table: tableName })
+      } catch (error) {
+        // Ignore errors for individual tables - they might not be content tables
+        log.debug("skipped FTS rebuild", { table: tableName, reason: String(error) })
+      }
+    }
+  } catch (error) {
+    // FTS tables might not exist yet - that's fine
+    log.debug("FTS rebuild skipped", { reason: String(error) })
+  }
 }
