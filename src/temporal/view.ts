@@ -148,9 +148,9 @@ export function reconstructHistoryAsTurns(view: TemporalView): CoreMessage[] {
           error: error instanceof Error ? error.message : String(error),
         })
       }
-      let summaryContent = `[summary from:${summary.startId} to:${summary.endId}]\n${summary.narrative}`
+      let summaryContent = `[distilled from:${summary.startId} to:${summary.endId}]\n${summary.narrative}`
       if (observations.length > 0) {
-        summaryContent += "\n\nKey points:\n" + observations.map(o => `- ${o}`).join("\n")
+        summaryContent += "\n\nRetained facts:\n" + observations.map(o => `• ${o}`).join("\n")
       }
 
       turns.push({

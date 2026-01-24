@@ -260,7 +260,7 @@ describe("view reconstruction with IDs", () => {
     const summaryTurn = turns.find(t =>
       t.role === "assistant" &&
       typeof t.content === "string" &&
-      t.content.includes("[summary from:")
+      t.content.includes("[distilled from:")
     )
     expect(summaryTurn).toBeDefined()
     expect(summaryTurn!.content).toContain(`from:${msgs[0].id}`)

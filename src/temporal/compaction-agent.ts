@@ -1,14 +1,22 @@
 /**
- * Agentic compaction for temporal summarization.
+ * Agentic distillation for temporal memory optimization.
  *
- * This agent compresses conversation history by creating summaries. It:
+ * This agent optimizes the working memory (conversation history) by distilling
+ * older content into more focused, actionable form. The goal is NOT summarization
+ * (narrative compression) but DISTILLATION (retaining what matters for effective action).
+ *
+ * Key principles:
+ * - Working memory should be optimized for "what do I need to act effectively now?"
+ * - Recent events: keep detail (we might need to backtrack or reference)
+ * - Older events: distill to conclusions, decisions, and actionable facts
+ * - Preserve: file paths, decisions + rationale, user preferences, current state
+ * - Excise: back-and-forth debugging, missteps, verbose tool outputs, narrative filler
+ *
+ * The agent:
  * 1. Receives the same prompt as the main agent (for cache efficiency)
  * 2. Sees the temporal view with ULIDs exposed
- * 3. Calls create_summary() to subsume ranges of messages/summaries
+ * 3. Calls create_distillation() to subsume ranges of messages/summaries
  * 4. Loops until the token budget target is met
- *
- * The agent makes episodically-intelligent decisions about where to place
- * breakpoints and how to structure narratives, rather than using fixed rules.
  */
 
 import { tool } from "ai"
@@ -61,71 +69,89 @@ export interface CompactionConfig {
 }
 
 /**
- * Build the compaction task prompt.
+ * Build the distillation task prompt.
  *
  * The conversation history already contains IDs in messages ([id:xxx]) and
- * summaries ([summary from:xxx to:yyy]), so we just need to explain the task.
+ * distillations ([distilled from:xxx to:yyy]), so we just need to explain the task.
  */
 function buildCompactionTaskPrompt(
   currentTokens: number,
   targetTokens: number,
   recencyBuffer: number,
 ): string {
-  return `## Compaction Task
+  return `## Working Memory Optimization Task
 
-The conversation history has grown too large and needs to be compressed.
+Your working memory (conversation history) has grown large and needs to be optimized for effective action.
 
-**Current size:** ~${currentTokens} tokens
-**Target size:** ~${targetTokens} tokens
-**Tokens to compress:** ~${currentTokens - targetTokens}
-**Recency buffer:** ${recencyBuffer} most recent messages are protected (cannot be summarized)
+**Current size:** ~${currentTokens.toLocaleString()} tokens
+**Target size:** ~${targetTokens.toLocaleString()} tokens  
+**To distill:** ~${(currentTokens - targetTokens).toLocaleString()} tokens
+**Recency buffer:** ${recencyBuffer} most recent messages are protected
 
 The conversation above contains IDs you can reference:
 - Messages have \`[id:xxx]\` prefixes
-- Summaries show \`[summary from:xxx to:yyy]\` ranges
-- Note: The most recent ${recencyBuffer} messages are excluded from valid IDs to preserve immediate context
+- Distillations show \`[distilled from:xxx to:yyy]\` ranges
+- The most recent ${recencyBuffer} messages cannot be distilled (preserve immediate context)
+
+## Your Task: Distill, Don't Summarize
+
+The goal is NOT narrative summarization ("we discussed X and decided Y").
+The goal IS operational distillation - retaining what you need to act effectively.
+
+**RETAIN (actionable intelligence):**
+- File paths and what they contain/do
+- Decisions made and WHY (rationale matters for future decisions)
+- User preferences and corrections discovered
+- Current state of work and next steps
+- Specific values: URLs, config paths, command examples
+- Errors encountered and how they were resolved
+
+**EXCISE (noise):**
+- Back-and-forth debugging that led nowhere
+- Missteps and corrections (keep only the final correct approach)
+- Verbose tool outputs (keep only the relevant findings)
+- Narrative filler ("I'll help you with that", "Let me check")
+- Redundant information already captured elsewhere
+
+**TIME AWARENESS:**
+- Recent content: Keep more detail (might need to reference or backtrack)
+- Older content: Distill more aggressively to conclusions
+- Ancient content: Should be heavily compressed - just outcomes and key facts
 
 ## Instructions
 
-Create summaries to compress the conversation history. For each summary:
+For each distillation, call **create_distillation** with:
 
-1. Choose a **startId** and **endId** that defines the range to summarize
-   - Use IDs visible in the conversation (message IDs or summary boundary IDs)
-   - A summary can subsume other summaries by spanning their ranges
-   - Recent messages are automatically protected - focus on older content
+1. **startId** and **endId**: The range to distill (use visible IDs)
 
-2. Write a **narrative** that captures what happened in that range
-   - Focus on the flow of events, decisions made, and work accomplished
-   - Write from your perspective as the agent
+2. **operationalContext**: A focused paragraph capturing:
+   - What was accomplished or decided
+   - Key facts needed for future action
+   - Write as working notes, not narrative prose
 
-3. List **keyObservations** - specific facts that must not be lost
-   - Instructions from the user
-   - Technical decisions and their rationale
-   - File paths, repository names, specific values
-   - Anything that would be needed to continue the work
+3. **retainedFacts**: Array of specific, actionable items:
+   - "Protocol server is at src/jsonrpc/index.ts"
+   - "User prefers simplicity over backwards compatibility"
+   - "Session ID is generated once at startup, not per-message"
+   - Keep these concrete and referenceable
 
-Call **create_summary** one or more times. You can create multiple summaries in a single turn.
+Call **finish_distillation** when you've optimized enough or no more distillation is beneficial.
 
-When you've compressed enough to meet the target (or believe no more compression is beneficial), call **finish_compaction**.
-
-Tips:
-- Older content can be more aggressively summarized
-- Natural breakpoints: task completions, topic changes, user requests
-- Higher-order summaries are created automatically when you subsume existing summaries
+**Remember:** You're optimizing your own working memory. Keep what helps you act with precision.
 `
 }
 
 /**
- * Result of a compaction tool execution.
+ * Result of a distillation tool execution.
  */
-interface CompactionToolResult {
+interface DistillationToolResult {
   output: string
   done: boolean
-  summaryCreated: boolean
+  distillationCreated: boolean
 }
 
 /**
- * Build the compaction tools with execute callbacks.
+ * Build the distillation tools with execute callbacks.
  * Returns both the tools and a results map to track execution outcomes.
  */
 function buildCompactionTools(
@@ -133,52 +159,52 @@ function buildCompactionTools(
   validIds: Set<string>,
 ): {
   tools: Record<string, CoreTool>
-  getLastResult: (toolCallId: string) => CompactionToolResult | undefined
+  getLastResult: (toolCallId: string) => DistillationToolResult | undefined
 } {
   // Track results by toolCallId for the agent loop to access
-  const results = new Map<string, CompactionToolResult>()
+  const results = new Map<string, DistillationToolResult>()
 
   const tools: Record<string, CoreTool> = {
-    create_summary: tool({
-      description: "Create a summary that covers a range of the conversation. The summary subsumes all messages and summaries within the specified range.",
+    create_distillation: tool({
+      description: "Distill a range of conversation into optimized working memory. Focuses on retaining actionable intelligence while excising noise.",
       parameters: z.object({
         startId: z.string().describe("ULID of the first item to include (inclusive). Must be a visible ID."),
         endId: z.string().describe("ULID of the last item to include (inclusive). Must be a visible ID."),
-        narrative: z.string().describe("Prose summary of events in this range (2-4 sentences). Write from your perspective."),
-        keyObservations: z.array(z.string()).describe("Array of specific facts, instructions, or decisions that must be retained."),
+        operationalContext: z.string().describe("Focused paragraph of what was accomplished, decided, or learned. Write as working notes - concrete and actionable, not narrative prose. Include file paths, specific values, and rationale for decisions."),
+        retainedFacts: z.array(z.string()).describe("Array of specific, referenceable facts. Each should be concrete and actionable, e.g., 'Protocol server is at src/jsonrpc/index.ts' or 'User prefers simplicity over backwards compatibility'."),
       }),
-      execute: async ({ startId, endId, narrative, keyObservations }, { toolCallId }) => {
+      execute: async ({ startId, endId, operationalContext, retainedFacts }, { toolCallId }) => {
         // Validate IDs
         if (!validIds.has(startId)) {
-          const result: CompactionToolResult = {
+          const result: DistillationToolResult = {
             output: `Error: startId "${startId}" is not a visible ID. Use only IDs shown in the conversation history.`,
             done: false,
-            summaryCreated: false,
+            distillationCreated: false,
           }
           results.set(toolCallId, result)
           return result.output
         }
         if (!validIds.has(endId)) {
-          const result: CompactionToolResult = {
+          const result: DistillationToolResult = {
             output: `Error: endId "${endId}" is not a visible ID. Use only IDs shown in the conversation history.`,
             done: false,
-            summaryCreated: false,
+            distillationCreated: false,
           }
           results.set(toolCallId, result)
           return result.output
         }
         if (startId > endId) {
-          const result: CompactionToolResult = {
+          const result: DistillationToolResult = {
             output: `Error: startId must be <= endId (got ${startId} > ${endId})`,
             done: false,
-            summaryCreated: false,
+            distillationCreated: false,
           }
           results.set(toolCallId, result)
           return result.output
         }
 
-        // Determine the order of the new summary
-        // If it subsumes any summaries, it's one order higher than the max subsumed
+        // Determine the order of the new distillation
+        // If it subsumes any existing distillations, it's one order higher than the max subsumed
         const summaries = await storage.temporal.getSummaries()
         const subsumedSummaries = summaries.filter(
           s => s.startId >= startId && s.endId <= endId
@@ -188,10 +214,10 @@ function buildCompactionTools(
           : 0
         const newOrder = maxSubsumedOrder + 1
 
-        // Create the summary
+        // Create the distillation (stored as summary for compatibility)
         const input: SummaryInput = {
-          narrative,
-          keyObservations,
+          narrative: operationalContext,
+          keyObservations: retainedFacts,
           tags: [], // Could extract tags from content in future
         }
 
@@ -209,36 +235,37 @@ function buildCompactionTools(
 
         await storage.temporal.createSummary(summaryInsert)
 
-        log.info("created summary", {
+        log.info("created distillation", {
           id: summaryInsert.id,
           order: newOrder,
           startId,
           endId,
           tokens: summaryInsert.tokenEstimate,
+          factsRetained: retainedFacts.length,
           subsumed: subsumedSummaries.length,
         })
 
-        const result: CompactionToolResult = {
-          output: `Created order-${newOrder} summary covering ${startId} → ${endId} (~${summaryInsert.tokenEstimate} tokens). ${subsumedSummaries.length > 0 ? `Subsumed ${subsumedSummaries.length} existing summaries.` : ""}`,
+        const result: DistillationToolResult = {
+          output: `Created order-${newOrder} distillation covering ${startId} → ${endId} (~${summaryInsert.tokenEstimate} tokens, ${retainedFacts.length} facts retained). ${subsumedSummaries.length > 0 ? `Subsumed ${subsumedSummaries.length} existing distillations.` : ""}`,
           done: false,
-          summaryCreated: true,
+          distillationCreated: true,
         }
         results.set(toolCallId, result)
         return result.output
       },
     }),
 
-    finish_compaction: tool({
-      description: "Signal that compaction is complete for this turn. Call this when you've created enough summaries or believe no more compression is beneficial.",
+    finish_distillation: tool({
+      description: "Signal that working memory optimization is complete. Call when you've distilled enough or no more optimization is beneficial.",
       parameters: z.object({
-        reason: z.string().describe("Brief explanation of why compaction is complete (e.g., 'reached target', 'recent content should stay detailed')"),
+        reason: z.string().describe("Brief explanation (e.g., 'reached target', 'recent content needs detail for ongoing work')"),
       }),
       execute: async ({ reason }, { toolCallId }) => {
-        log.info("compaction finished", { reason })
-        const result: CompactionToolResult = {
-          output: `Compaction complete: ${reason}`,
+        log.info("distillation finished", { reason })
+        const result: DistillationToolResult = {
+          output: `Distillation complete: ${reason}`,
           done: true,
-          summaryCreated: false,
+          distillationCreated: false,
         }
         results.set(toolCallId, result)
         return result.output
@@ -318,7 +345,7 @@ export async function runCompaction(
     return result
   }
 
-  log.info("starting compaction", {
+  log.info("starting distillation", {
     tokensBefore: result.tokensBefore,
     target: config.compactionTarget,
   })
@@ -390,11 +417,11 @@ export async function runCompaction(
       maxTokens: 4096,
       temperature: 0,
       maxTurns: 5,
-      isDone: stopOnTool("finish_compaction"),
+      isDone: stopOnTool("finish_distillation"),
       onToolResult: (toolCallId, toolName) => {
-        // Track summaries created using our result tracking map
+        // Track distillations created using our result tracking map
         const toolResult = getLastResult(toolCallId)
-        if (toolResult?.summaryCreated) {
+        if (toolResult?.distillationCreated) {
           result.summariesCreated++
         }
       },
@@ -405,7 +432,7 @@ export async function runCompaction(
 
     // Check if no tool calls were made (agent confused)
     if (loopResult.turnsUsed === 1 && loopResult.messages.length === initialMessages.length + 1) {
-      log.warn("compaction agent made no tool calls", {
+      log.warn("distillation agent made no tool calls", {
         text: loopResult.finalText?.slice(0, 200)
       })
     }
@@ -414,8 +441,8 @@ export async function runCompaction(
   // Get final token count
   result.tokensAfter = await storage.temporal.estimateUncompactedTokens()
 
-  log.info("compaction complete", {
-    summariesCreated: result.summariesCreated,
+  log.info("distillation complete", {
+    distillationsCreated: result.summariesCreated,
     tokensBefore: result.tokensBefore,
     tokensAfter: result.tokensAfter,
     turnsUsed: result.turnsUsed,

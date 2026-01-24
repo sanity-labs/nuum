@@ -272,7 +272,7 @@ describe("Temporal View Turn Reconstruction", () => {
     const summaryTurn = turns.find(t =>
       t.role === "assistant" &&
       typeof t.content === "string" &&
-      t.content.includes("[summary from:")
+      t.content.includes("[distilled from:")
     )
     expect(summaryTurn).toBeDefined()
     expect(summaryTurn!.content).toContain(`from:${msg1Id}`)
