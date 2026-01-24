@@ -66,7 +66,7 @@ export namespace Provider {
    */
   export function getModelForTier(tier: Config.ModelTier): LanguageModel {
     const modelId = Config.resolveModelTier(tier)
-    log.info("resolving model tier", { tier, modelId })
+    log.debug("resolving model tier", { tier, modelId })
     return getModel(modelId)
   }
 
@@ -84,6 +84,69 @@ export namespace Provider {
   }
 
   /**
+   * Wrap tools to make them resilient to validation errors.
+   * 
+   * When the model makes a tool call with invalid arguments (wrong param names,
+   * type mismatches, etc.), we want the model to see the error and retry -
+   * not crash the turn.
+   * 
+   * For each tool, we create a wrapper that:
+   * 1. Uses a permissive schema (accepts any object)
+   * 2. Validates the args manually in execute
+   * 3. Returns validation errors as tool results instead of throwing
+   */
+  function wrapToolsForErrorResilience(
+    tools: Record<string, CoreTool> | undefined
+  ): Record<string, CoreTool> | undefined {
+    if (!tools) return undefined
+
+    const wrapped: Record<string, CoreTool> = {}
+
+    for (const [name, tool] of Object.entries(tools)) {
+      // Get the original schema and execute function
+      const originalSchema = tool.parameters
+      const originalExecute = tool.execute
+
+      if (!originalExecute) {
+        // Tool without execute - pass through unchanged
+        wrapped[name] = tool
+        continue
+      }
+
+      // Create a permissive wrapper schema that accepts any object
+      const permissiveSchema = z.record(z.unknown())
+
+      wrapped[name] = {
+        ...tool,
+        parameters: permissiveSchema,
+        execute: async (args: Record<string, unknown>, context: unknown) => {
+          // Try to validate against the original schema
+          const parseResult = originalSchema.safeParse(args)
+          
+          if (!parseResult.success) {
+            // Validation failed - return error as result
+            const errorDetails = parseResult.error.errors
+              .map(e => `${e.path.join('.')}: ${e.message}`)
+              .join('; ')
+            
+            log.warn("tool validation error - returning to model", {
+              toolName: name,
+              error: errorDetails,
+            })
+            
+            return `Error: Invalid arguments for tool "${name}": ${errorDetails}`
+          }
+
+          // Validation passed - call original execute with validated args
+          return originalExecute(parseResult.data, context as Parameters<typeof originalExecute>[1])
+        },
+      }
+    }
+
+    return wrapped
+  }
+
+  /**
    * Generate text without streaming.
    */
   export async function generate(options: GenerateOptions): Promise<GenerateTextResult<Record<string, CoreTool>, never>> {
@@ -96,7 +159,7 @@ export namespace Provider {
     return generateText({
       model: options.model,
       messages: options.messages,
-      tools: options.tools,
+      tools: wrapToolsForErrorResilience(options.tools),
       maxTokens: options.maxTokens,
       temperature: options.temperature,
       abortSignal: options.abortSignal,
@@ -110,7 +173,7 @@ export namespace Provider {
   export async function stream(
     options: GenerateOptions,
   ): Promise<StreamTextResult<Record<string, CoreTool>, never>> {
-    log.info("stream", {
+    log.debug("stream", {
       model: options.model.modelId,
       messageCount: options.messages.length,
       hasTools: !!options.tools,
@@ -119,7 +182,7 @@ export namespace Provider {
     return streamText({
       model: options.model,
       messages: options.messages,
-      tools: options.tools,
+      tools: wrapToolsForErrorResilience(options.tools),
       maxTokens: options.maxTokens,
       temperature: options.temperature,
       abortSignal: options.abortSignal,
