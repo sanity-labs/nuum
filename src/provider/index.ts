@@ -87,7 +87,7 @@ export namespace Provider {
    * Generate text without streaming.
    */
   export async function generate(options: GenerateOptions): Promise<GenerateTextResult<Record<string, CoreTool>, never>> {
-    log.info("generate", {
+    log.debug("generate", {
       model: options.model.modelId,
       messageCount: options.messages.length,
       hasTools: !!options.tools,

@@ -52,11 +52,6 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
   return {
     async appendMessage(msg: TemporalMessageInsert): Promise<void> {
       await db.insert(temporalMessages).values(msg)
-      log.info("persisted message", {
-        id: msg.id,
-        type: msg.type,
-        excerpt: msg.content.slice(0, 50),
-      })
     },
 
     async createSummary(summary: TemporalSummaryInsert): Promise<void> {

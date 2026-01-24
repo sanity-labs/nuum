@@ -163,12 +163,7 @@ export class ProtocolReplSession {
         }
         
         // Show tool calls
-        const toolCalls = msg.message.content.filter(
-          (b): b is { type: "tool_use"; id: string; name: string; input: unknown } => b.type === "tool_use"
-        )
-        for (const tc of toolCalls) {
-          console.log(`\x1b[33m[Tool: ${tc.name}]\x1b[0m`) // Yellow
-        }
+        // Tool calls are already logged by activity log, no need to duplicate
         break
 
       case "result":

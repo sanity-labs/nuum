@@ -68,7 +68,7 @@ Use this tool for:
     const cwd = params.workdir || process.cwd()
     const timeout = params.timeout ?? DEFAULT_TIMEOUT_MS
 
-    log.info("executing", { command: params.command, cwd, shell })
+    log.debug("executing", { command: params.command, cwd, shell })
 
     if (timeout < 0) {
       throw new Error(`Invalid timeout value: ${timeout}. Timeout must be a positive number.`)
