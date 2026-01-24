@@ -66,11 +66,11 @@ export interface CompactionResult {
  */
 export interface CompactionConfig {
   /** Trigger compaction when uncompacted tokens exceed this threshold */
-  compactionThreshold: number
+  compactionThreshold: number;
   /** Target token count after compaction completes */
-  compactionTarget: number
+  compactionTarget: number;
   /** Force run even if already under target */
-  force?: boolean
+  force?: boolean;
 }
 
 /**
@@ -85,16 +85,18 @@ function buildCompactionTaskPrompt(
   recencyBuffer: number,
 ): string {
   const underTarget = currentTokens <= targetTokens;
-  
+
   return `## Working Memory Optimization Task
 
 Your working memory (conversation history) needs to be optimized for effective action.
 
 **Current size:** ~${currentTokens.toLocaleString()} tokens
 **Target size:** ~${targetTokens.toLocaleString()} tokens
-${underTarget 
+${
+  underTarget
     ? "**Status:** Already at/under target. You may clean up noise if you see any, or call finish_distillation."
-    : `**To distill:** ~${(currentTokens - targetTokens).toLocaleString()} tokens`}
+    : `**To distill:** ~${(currentTokens - targetTokens).toLocaleString()} tokens`
+}
 **Recency buffer:** ${recencyBuffer} most recent messages are protected
 
 The conversation above contains IDs you can reference:
@@ -125,6 +127,12 @@ The goal IS operational distillation - retaining what you need to act effectivel
 - Questions that were immediately answered
 - Exploratory tangents that didn't lead anywhere
 - Generally older, irrelevant sections: Summarize them even if the budget allows for them.
+- When the history is long, some times you just have to clean old blocks up. Consider grab bag summaries for swathes of old cruft.
+
+**MAXIMIZE (elimination)**
+- A great summary is useful, but capture the whole sequence.
+- An optimal destilation subsumes the longest possible sequence in them most compact, yet accurat destillate
+- Leaving cruft in the history is noisy and leads to a messy working environment.
 
 
 **ELIMINATION DISTILLATIONS:**
@@ -183,8 +191,8 @@ function buildCompactionTools(
   validIds: Set<string>,
   targetTokens: number,
 ): {
-  tools: Record<string, CoreTool>
-  getLastResult: (toolCallId: string) => DistillationToolResult | undefined
+  tools: Record<string, CoreTool>;
+  getLastResult: (toolCallId: string) => DistillationToolResult | undefined;
 } {
   // Track results by toolCallId for the agent loop to access
   const results = new Map<string, DistillationToolResult>();
@@ -192,7 +200,7 @@ function buildCompactionTools(
   const tools: Record<string, CoreTool> = {
     create_distillation: tool({
       description:
-        "Distill a range of conversation into optimized working memory. Focuses on retaining actionable intelligence while excising noise.",
+        "Distill a range of conversation into optimized working memory. Focuses on retaining actionable intelligence while excising noise. Eliminating old cruft is also a form of optimization.",
       parameters: z.object({
         startId: z
           .string()
@@ -251,23 +259,28 @@ function buildCompactionTools(
         // Adjust boundaries to avoid cutting tool_call/tool_result pairs
         // Get messages in and around the range to check for orphaned pairs
         const allMessages = await storage.temporal.getMessages();
-        const sortedMessages = [...allMessages].sort((a, b) => a.id.localeCompare(b.id));
-        
+        const sortedMessages = [...allMessages].sort((a, b) =>
+          a.id.localeCompare(b.id),
+        );
+
         let adjustedStartId = startId;
         let adjustedEndId = endId;
-        
+
         // Find the message at startId - if it's a tool_result, include the preceding tool_call
-        const startIdx = sortedMessages.findIndex(m => m.id === startId);
+        const startIdx = sortedMessages.findIndex((m) => m.id === startId);
         if (startIdx > 0) {
           const startMsg = sortedMessages[startIdx];
           const prevMsg = sortedMessages[startIdx - 1];
-          if (startMsg?.type === "tool_result" && prevMsg?.type === "tool_call") {
+          if (
+            startMsg?.type === "tool_result" &&
+            prevMsg?.type === "tool_call"
+          ) {
             adjustedStartId = prevMsg.id;
           }
         }
-        
+
         // Find the message at endId - if it's a tool_call, include the following tool_result
-        const endIdx = sortedMessages.findIndex(m => m.id === endId);
+        const endIdx = sortedMessages.findIndex((m) => m.id === endId);
         if (endIdx >= 0 && endIdx < sortedMessages.length - 1) {
           const endMsg = sortedMessages[endIdx];
           const nextMsg = sortedMessages[endIdx + 1];
@@ -310,9 +323,10 @@ function buildCompactionTools(
         await storage.temporal.createSummary(summaryInsert);
 
         // Note if boundaries were adjusted to preserve tool call pairs
-        const wasAdjusted = adjustedStartId !== startId || adjustedEndId !== endId;
-        const adjustmentNote = wasAdjusted 
-          ? ` (adjusted to ${adjustedStartId} → ${adjustedEndId} to preserve tool call pairs)` 
+        const wasAdjusted =
+          adjustedStartId !== startId || adjustedEndId !== endId;
+        const adjustmentNote = wasAdjusted
+          ? ` (adjusted to ${adjustedStartId} → ${adjustedEndId} to preserve tool call pairs)`
           : "";
 
         // Get current token count to report progress
@@ -441,8 +455,8 @@ export async function runCompaction(
   // Note: we only use systemPrompt here; history is rebuilt each turn
   const ctx = await buildAgentContext(storage);
 
-  // Get model (use workhorse tier - good balance of capability and cost)
-  const model = Provider.getModelForTier("workhorse");
+  // Get model (use reasoning tier for better distillation decisions)
+  const model = Provider.getModelForTier("reasoning");
 
   // Outer loop: agent controls when to stop via finish_distillation
   // We just enforce max turns as a safety limit
@@ -477,7 +491,11 @@ export async function runCompaction(
     });
 
     // Build tools with execute callbacks (must rebuild each turn as validIds changes)
-    const { tools, getLastResult } = buildCompactionTools(storage, validIds, config.compactionTarget);
+    const { tools, getLastResult } = buildCompactionTools(
+      storage,
+      validIds,
+      config.compactionTarget,
+    );
 
     // Build task prompt (IDs are already visible in the conversation)
     const taskPrompt = buildCompactionTaskPrompt(
@@ -514,6 +532,11 @@ export async function runCompaction(
     result.usage.inputTokens += loopResult.usage.inputTokens;
     result.usage.outputTokens += loopResult.usage.outputTokens;
 
+    // Check if agent called finish_distillation (inner loop ended via isDone)
+    if (loopResult.stopReason === "done") {
+      break;
+    }
+
     // Check if no tool calls were made (agent confused)
     if (
       loopResult.turnsUsed === 1 &&
@@ -522,6 +545,7 @@ export async function runCompaction(
       log.warn("distillation agent made no tool calls", {
         text: loopResult.finalText?.slice(0, 200),
       });
+      break; // Don't keep looping if agent is confused
     }
   }
 

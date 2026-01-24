@@ -113,6 +113,8 @@ export interface AgentLoopResult {
     inputTokens: number
     outputTokens: number
   }
+  /** Why the loop stopped */
+  stopReason: "done" | "no_tool_calls" | "max_turns" | "cancelled"
 }
 
 /**
@@ -150,10 +152,12 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   let turnsUsed = 0
   let totalInputTokens = 0
   let totalOutputTokens = 0
+  let stopReason: "done" | "no_tool_calls" | "max_turns" | "cancelled" = "max_turns"
 
   for (let turn = 0; turn < maxTurns; turn++) {
     // Check for cancellation at start of each turn
     if (abortSignal?.aborted) {
+      stopReason = "cancelled"
       throw new AgentLoopCancelledError()
     }
 
@@ -249,6 +253,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
       // Check if we should stop
       if (isDone(toolCallInfos)) {
+        stopReason = "done"
         break
       }
 
@@ -267,6 +272,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
     // Check isDone with empty tool calls (default behavior stops here)
     if (isDone([])) {
+      stopReason = "no_tool_calls"
       break
     }
   }
@@ -279,6 +285,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
     },
+    stopReason,
   }
 }
 
