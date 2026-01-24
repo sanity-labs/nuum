@@ -37,13 +37,36 @@ export interface TemporalSearchResult {
   expandable: string[] // Summary IDs that can be expanded
 }
 
+/**
+ * Result from FTS search with snippet extraction.
+ */
+export interface FTSSearchResult {
+  id: string
+  type: string
+  snippet: string  // Highlighted snippet around match
+  rank: number     // FTS5 relevance rank (lower is better)
+}
+
+/**
+ * Parameters for getting a message with context.
+ */
+export interface MessageWithContextParams {
+  id: string
+  contextBefore?: number  // Number of messages before
+  contextAfter?: number   // Number of messages after
+}
+
 export interface TemporalStorage {
   appendMessage(msg: TemporalMessageInsert): Promise<void>
   createSummary(summary: TemporalSummaryInsert): Promise<void>
   getMessages(from?: string, to?: string): Promise<TemporalMessage[]>
+  getMessage(id: string): Promise<TemporalMessage | null>
+  getMessageWithContext(params: MessageWithContextParams): Promise<TemporalMessage[]>
   getSummaries(order?: number): Promise<TemporalSummary[]>
   getHighestOrderSummaries(): Promise<TemporalSummary[]>
   search(params: TemporalSearchParams): Promise<TemporalSearchResult>
+  /** Full-text search using FTS5 with snippet extraction */
+  searchFTS(query: string, limit?: number): Promise<FTSSearchResult[]>
   estimateUncompactedTokens(): Promise<number>
   getLastSummaryEndId(): Promise<string | null>
 }
@@ -72,6 +95,52 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
       }
 
       return query.orderBy(asc(temporalMessages.id))
+    },
+
+    async getMessage(id: string): Promise<TemporalMessage | null> {
+      const result = await db
+        .select()
+        .from(temporalMessages)
+        .where(eq(temporalMessages.id, id))
+        .limit(1)
+      return result[0] ?? null
+    },
+
+    async getMessageWithContext(params: MessageWithContextParams): Promise<TemporalMessage[]> {
+      const { id, contextBefore = 0, contextAfter = 0 } = params
+      
+      // Get the target message first to verify it exists
+      const target = await this.getMessage(id)
+      if (!target) return []
+
+      const results: TemporalMessage[] = []
+
+      // Get messages before (if requested)
+      if (contextBefore > 0) {
+        const before = await db
+          .select()
+          .from(temporalMessages)
+          .where(sql`${temporalMessages.id} < ${id}`)
+          .orderBy(desc(temporalMessages.id))
+          .limit(contextBefore)
+        results.push(...before.reverse())
+      }
+
+      // Add the target message
+      results.push(target)
+
+      // Get messages after (if requested)
+      if (contextAfter > 0) {
+        const after = await db
+          .select()
+          .from(temporalMessages)
+          .where(sql`${temporalMessages.id} > ${id}`)
+          .orderBy(asc(temporalMessages.id))
+          .limit(contextAfter)
+        results.push(...after)
+      }
+
+      return results
     },
 
     async getSummaries(order?: number): Promise<TemporalSummary[]> {
@@ -211,6 +280,33 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
       }
 
       return { matches, expandable }
+    },
+
+    async searchFTS(query: string, limit: number = 20): Promise<FTSSearchResult[]> {
+      // Use FTS5 MATCH with snippet() for highlighted excerpts
+      // 
+      // Quote the entire query to prevent FTS5 from interpreting words
+      // as column names or operators (e.g., "agent" being parsed as column:value)
+      const escapedQuery = `"${query.replace(/"/g, '""')}"`
+      
+      const results = await db._rawDb.prepare(`
+        SELECT 
+          id,
+          type,
+          snippet(temporal_messages_fts, 2, '>>>', '<<<', '...', 32) as snippet,
+          rank
+        FROM temporal_messages_fts
+        WHERE temporal_messages_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(escapedQuery, limit) as Array<{ id: string; type: string; snippet: string; rank: number }>
+
+      return results.map(r => ({
+        id: r.id,
+        type: r.type,
+        snippet: r.snippet,
+        rank: r.rank,
+      }))
     },
 
     async estimateUncompactedTokens(): Promise<number> {

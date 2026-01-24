@@ -88,6 +88,16 @@ Knowledge entries may contain [[slug]] cross-references to related entries. Foll
 
 You do NOT manage this memory directly. Focus on your work - memory happens automatically.
 Your /identity and /behavior entries are always visible to guide you.
+
+## Reflection
+
+When you need to remember something specific from past conversations - a file path, a decision, a value, something the user said - use the **reflect** tool. It searches your full conversation history and knowledge base.
+
+Use reflect when:
+- You're unsure about something discussed before
+- You need a specific value or path from earlier work
+- The user asks "remember when..." or "what did we decide about..."
+- You want to verify your memory before acting
 `
 
   // Add CAST-provided system prompt overlay (if any)

@@ -33,7 +33,9 @@ import {
   LTMGlobTool,
   LTMSearchTool,
   LTMReadTool,
+  ReflectTool,
   type LTMToolContext,
+  type ReflectToolContext,
 } from "../tool"
 import { runAgentLoop, AgentLoopCancelledError } from "./loop"
 import { buildAgentContext } from "../context"
@@ -159,6 +161,7 @@ export interface AgentResult {
 interface ToolContextFactory {
   createContext(callId: string): Tool.Context
   createLTMContext(callId: string): Tool.Context & { extra: LTMToolContext }
+  createReflectContext(callId: string): Tool.Context & { extra: ReflectToolContext }
 }
 
 function createToolContextFactory(
@@ -188,6 +191,16 @@ function createToolContextFactory(
       ctx.extra = {
         ltm: storage.ltm,
         agentType: "main",
+      }
+      return ctx
+    },
+    createReflectContext(callId: string): Tool.Context & { extra: ReflectToolContext } {
+      const ctx = Tool.createContext({
+        ...baseContext,
+        callID: callId,
+      }) as Tool.Context & { extra: ReflectToolContext }
+      ctx.extra = {
+        storage,
       }
       return ctx
     },
@@ -357,6 +370,14 @@ function buildTools(
     parameters: LTMReadTool.definition.parameters,
     execute: async (args, { toolCallId }) =>
       safeExecute("ltm_read", () => LTMReadTool.definition.execute(args, factory.createLTMContext(toolCallId))),
+  })
+
+  // Reflection tool - search own memory to answer questions
+  tools.reflect = tool({
+    description: ReflectTool.definition.description,
+    parameters: ReflectTool.definition.parameters,
+    execute: async (args, { toolCallId }) =>
+      safeExecute("reflect", () => ReflectTool.definition.execute(args, factory.createReflectContext(toolCallId))),
   })
 
   return tools

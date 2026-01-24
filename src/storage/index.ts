@@ -11,6 +11,8 @@ import {
   type TemporalStorage,
   type TemporalSearchParams,
   type TemporalSearchResult,
+  type FTSSearchResult,
+  type MessageWithContextParams,
 } from "./temporal"
 import {
   createPresentStorage,
@@ -23,6 +25,7 @@ import {
   type LTMStorage,
   type LTMCreateInput,
   type LTMSearchResult,
+  type LTMFTSSearchResult,
   type AgentType,
   ConflictError,
 } from "./ltm"
@@ -34,12 +37,15 @@ export type {
   TemporalStorage,
   TemporalSearchParams,
   TemporalSearchResult,
+  FTSSearchResult,
+  MessageWithContextParams,
   PresentStorage,
   PresentState,
   Task,
   LTMStorage,
   LTMCreateInput,
   LTMSearchResult,
+  LTMFTSSearchResult,
   AgentType,
   WorkerStorage,
   WorkerType,

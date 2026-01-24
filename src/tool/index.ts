@@ -12,6 +12,7 @@ export { GlobTool, type GlobMetadata } from "./glob"
 export { GrepTool, type GrepMetadata } from "./grep"
 export { WebSearchTool, type WebSearchMetadata, type SearchResult } from "./web-search"
 export { WebFetchTool, type WebFetchMetadata } from "./web-fetch"
+export { ReflectTool, type ReflectMetadata, type ReflectToolContext } from "./reflect"
 export { McpStatusTool, type McpStatusMetadata } from "./mcp-status"
 export {
   LTMGlobTool,

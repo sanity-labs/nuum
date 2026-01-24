@@ -42,6 +42,16 @@ export interface LTMSearchResult {
   score?: number
 }
 
+/**
+ * Result from FTS search with snippet extraction.
+ */
+export interface LTMFTSSearchResult {
+  slug: string
+  title: string
+  snippet: string  // Highlighted snippet around match
+  rank: number     // FTS5 relevance rank (lower is better)
+}
+
 export interface LTMStorage {
   create(input: LTMCreateInput): Promise<LTMEntry>
   read(slug: string): Promise<LTMEntry | null>
@@ -76,6 +86,8 @@ export interface LTMStorage {
   archive(slug: string, expectedVersion: number): Promise<void>
   glob(pattern: string, maxDepth?: number): Promise<LTMEntry[]>
   search(query: string, pathPrefix?: string): Promise<LTMSearchResult[]>
+  /** Full-text search using FTS5 with snippet extraction */
+  searchFTS(query: string, limit?: number): Promise<LTMFTSSearchResult[]>
   getChildren(parentSlug: string | null): Promise<LTMEntry[]>
 }
 
@@ -581,6 +593,34 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
 
       // Sort by score descending
       return matches.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    },
+
+    async searchFTS(query: string, limit: number = 20): Promise<LTMFTSSearchResult[]> {
+      // Use FTS5 MATCH with snippet() for highlighted excerpts
+      //
+      // Quote the entire query to prevent FTS5 from interpreting words
+      // as column names or operators
+      const escapedQuery = `"${query.replace(/"/g, '""')}"`
+      
+      const results = await db._rawDb.prepare(`
+        SELECT 
+          slug,
+          title,
+          snippet(ltm_entries_fts, 2, '>>>', '<<<', '...', 32) as snippet,
+          rank
+        FROM ltm_entries_fts
+        WHERE ltm_entries_fts MATCH ?
+          AND slug IN (SELECT slug FROM ltm_entries WHERE archived_at IS NULL)
+        ORDER BY rank
+        LIMIT ?
+      `).all(escapedQuery, limit) as Array<{ slug: string; title: string; snippet: string; rank: number }>
+
+      return results.map(r => ({
+        slug: r.slug,
+        title: r.title,
+        snippet: r.snippet,
+        rank: r.rank,
+      }))
     },
 
     async getChildren(parentSlug: string | null): Promise<LTMEntry[]> {
