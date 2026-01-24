@@ -91,9 +91,12 @@ export namespace Provider {
    * not crash the turn.
    * 
    * For each tool, we create a wrapper that:
-   * 1. Uses a permissive schema (accepts any object)
-   * 2. Validates the args manually in execute
-   * 3. Returns validation errors as tool results instead of throwing
+   * 1. Keeps the original schema (so model sees proper parameter docs)
+   * 2. Wraps execute to catch any errors and return them as results
+   * 
+   * Note: This catches errors thrown by the execute function itself.
+   * Schema validation errors from the AI SDK are handled separately via
+   * experimental_repairToolCall.
    */
   function wrapToolsForErrorResilience(
     tools: Record<string, CoreTool> | undefined
@@ -103,8 +106,6 @@ export namespace Provider {
     const wrapped: Record<string, CoreTool> = {}
 
     for (const [name, tool] of Object.entries(tools)) {
-      // Get the original schema and execute function
-      const originalSchema = tool.parameters
       const originalExecute = tool.execute
 
       if (!originalExecute) {
@@ -113,38 +114,29 @@ export namespace Provider {
         continue
       }
 
-      // Create a permissive wrapper schema that accepts any object
-      const permissiveSchema = z.record(z.unknown())
-
       wrapped[name] = {
         ...tool,
-        parameters: permissiveSchema,
-        execute: async (args: Record<string, unknown>, context: unknown) => {
-          // Try to validate against the original schema
-          const parseResult = originalSchema.safeParse(args)
-          
-          if (!parseResult.success) {
-            // Validation failed - return error as result
-            const errorDetails = parseResult.error.errors
-              .map(e => `${e.path.join('.')}: ${e.message}`)
-              .join('; ')
-            
-            log.warn("tool validation error - returning to model", {
+        // Keep original schema so model sees proper parameter documentation
+        execute: async (args: unknown, context: unknown) => {
+          try {
+            return await originalExecute(args, context as Parameters<typeof originalExecute>[1])
+          } catch (error) {
+            // Return error as result instead of throwing
+            const message = error instanceof Error ? error.message : String(error)
+            log.warn("tool execution error - returning to model", {
               toolName: name,
-              error: errorDetails,
+              error: message,
             })
-            
-            return `Error: Invalid arguments for tool "${name}": ${errorDetails}`
+            return `Error executing tool ${name}: ${message}`
           }
-
-          // Validation passed - call original execute with validated args
-          return originalExecute(parseResult.data, context as Parameters<typeof originalExecute>[1])
         },
       }
     }
 
     return wrapped
   }
+
+
 
   /**
    * Generate text without streaming.
