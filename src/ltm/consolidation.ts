@@ -11,22 +11,17 @@
  *
  * Tools available:
  *
- * Navigation & Search:
- * - ltm_glob: Browse tree structure
- * - ltm_search: Find related entries
- * - ltm_read: Read a specific entry
+ * Knowledge Base:
+ * - ltm_glob, ltm_search, ltm_read: Navigate and search
+ * - ltm_create, ltm_update, ltm_edit: Create and modify
+ * - ltm_reparent, ltm_rename, ltm_archive: Organize
  *
- * Creation & Modification:
- * - ltm_create: Create new knowledge entries
- * - ltm_update: Full rewrite of entry body (CAS)
- * - ltm_edit: Surgical find-replace (CAS)
+ * Codebase Research:
+ * - read: Read files to verify/enrich knowledge
+ * - glob: Find files matching patterns
+ * - grep: Search file contents
  *
- * Organization:
- * - ltm_reparent: Move entry to new parent
- * - ltm_rename: Change entry slug
- * - ltm_archive: Soft-delete outdated entries
- *
- * Research:
+ * Web Research:
  * - web_search: Search the web for information
  * - web_fetch: Read and extract info from a webpage
  *
@@ -56,6 +51,9 @@ import {
   LTMArchiveTool,
   WebSearchTool,
   WebFetchTool,
+  ReadTool,
+  GlobTool,
+  GrepTool,
   renderCompactTree,
   type LTMToolContext,
 } from "../tool"
@@ -285,7 +283,56 @@ function buildConsolidationTools(
     },
   })
 
-  // Web tools for research and fact-checking
+  // File system tools for codebase research
+  tools.read = tool({
+    description: ReadTool.definition.description,
+    parameters: ReadTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const ctx = Tool.createContext({
+        sessionID: "consolidation",
+        messageID: "consolidation",
+        callID: toolCallId,
+      })
+      const toolResult = await ReadTool.definition.execute(args, ctx)
+      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
+      results.set(toolCallId, result)
+      return result.output
+    },
+  })
+
+  tools.glob = tool({
+    description: GlobTool.definition.description,
+    parameters: GlobTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const ctx = Tool.createContext({
+        sessionID: "consolidation",
+        messageID: "consolidation",
+        callID: toolCallId,
+      })
+      const toolResult = await GlobTool.definition.execute(args, ctx)
+      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
+      results.set(toolCallId, result)
+      return result.output
+    },
+  })
+
+  tools.grep = tool({
+    description: GrepTool.definition.description,
+    parameters: GrepTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const ctx = Tool.createContext({
+        sessionID: "consolidation",
+        messageID: "consolidation",
+        callID: toolCallId,
+      })
+      const toolResult = await GrepTool.definition.execute(args, ctx)
+      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
+      results.set(toolCallId, result)
+      return result.output
+    },
+  })
+
+  // Web tools for external research
   tools.web_search = tool({
     description: WebSearchTool.definition.description,
     parameters: WebSearchTool.definition.parameters,
@@ -389,24 +436,27 @@ ${recentlyUpdatedEntries.map(e => `- **${e.slug}**: ${e.title}`).join("\n")}
 
 ### What Makes a GREAT Entry
 
-**Accumulated wisdom, not documentation:**
+**Accumulated wisdom (learnings, preferences, gotchas):**
 - ✓ "User prefers simplicity over backwards compatibility - don't maintain legacy paths"
 - ✓ "Haiku is unreliable with complex tool schemas - use workhorse tier instead"
-- ✓ "When refactoring, user wants tests run after each phase"
-- ✗ "The config module handles configuration" (too obvious)
-- ✗ "We discussed the protocol today" (too vague)
-
-**Decision rationale:**
-- ✓ "Chose raw NDJSON over JSON-RPC envelope because: simpler, matches Claude Code SDK, no users to migrate"
-- ✗ "Using NDJSON format" (missing the WHY)
-
-**Gotchas and learnings:**
 - ✓ "MCP servers must be initialized before building tools - order matters"
-- ✓ "Token estimates use 4 chars/token approximation - actual varies by model"
+- ✗ "We discussed the protocol today" (too vague, no actionable content)
 
-**Specific and referenceable:**
-- ✓ "Protocol server: src/jsonrpc/index.ts - handles stdin/stdout, message queuing, mid-turn injection"
-- ✗ "The server handles messages" (too vague to be useful)
+**Decision rationale (the WHY matters):**
+- ✓ "Chose raw NDJSON over JSON-RPC envelope because: simpler, matches Claude Code SDK, no users to migrate"
+- ✗ "Using NDJSON format" (missing the WHY - useless for future decisions)
+
+**Codebase documentation (valuable for complex projects!):**
+- ✓ "src/jsonrpc/index.ts: Protocol server - handles stdin/stdout, message queuing, mid-turn injection via onBeforeTurn callback"
+- ✓ "src/temporal/: Working memory system - compaction.ts (token budgets), view.ts (reconstruction), compaction-agent.ts (distillation)"
+- ✓ "Tool pattern: parameters must be defined BEFORE Tool.define() call due to initialization order"
+- ✗ "The config module handles configuration" (too obvious, adds no value)
+
+**When to document code structure:**
+- Complex modules with non-obvious responsibilities
+- Files that interact in subtle ways
+- Patterns that took effort to understand
+- Entry points and key abstractions
 
 ---
 
@@ -435,24 +485,31 @@ ${recentlyUpdatedEntries.map(e => `- **${e.slug}**: ${e.title}`).join("\n")}
 
 ### Tools Available
 
-**Navigate & Search:**
+**Knowledge Base:**
 - \`ltm_glob(pattern)\` - Browse tree ("/*" for top level, "/**" for all)
 - \`ltm_search(query)\` - Find entries by keyword (ALWAYS search before creating!)
 - \`ltm_read(slug)\` - Read full entry content
-
-**Create & Modify:**
 - \`ltm_create(slug, title, body, parentPath?)\` - New entry
 - \`ltm_update(slug, body, version)\` - Full rewrite (CAS)
 - \`ltm_edit(slug, old, new, version)\` - Surgical edit (CAS)
-
-**Organize:**
 - \`ltm_reparent(slug, newParentPath, version)\` - Move entry
 - \`ltm_rename(slug, newSlug, version)\` - Change slug
 - \`ltm_archive(slug, version)\` - Remove outdated entry
 
-**Research:**
+**Codebase Research:**
+- \`read(filePath)\` - Read a file to verify/enrich knowledge
+- \`glob(pattern)\` - Find files matching pattern
+- \`grep(pattern)\` - Search file contents
+
+**Web Research:**
 - \`web_search(query)\` - Search the web for information
 - \`web_fetch(url, question)\` - Read a webpage and extract info
+
+Use codebase tools to:
+- Verify file paths in entries still exist
+- Check if documented patterns are still accurate
+- Explore related files to build richer documentation
+- Confirm technical details before recording them
 
 ---
 
