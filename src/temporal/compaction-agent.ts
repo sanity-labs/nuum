@@ -114,6 +114,19 @@ The goal IS operational distillation - retaining what you need to act effectivel
 - Verbose tool outputs (keep only the relevant findings)
 - Narrative filler ("I'll help you with that", "Let me check")
 - Redundant information already captured elsewhere
+- Casual chatter, greetings, acknowledgments
+- Questions that were immediately answered
+- Exploratory tangents that didn't lead anywhere
+
+**ELIMINATION DISTILLATIONS:**
+Not every distillation needs rich content. If a range of messages contains mostly noise
+(chatter, false starts, trivial exchanges), create a minimal distillation that simply
+removes it from working memory. A distillation with brief operationalContext and few/no
+retainedFacts is perfectly valid when the goal is elimination rather than preservation.
+
+Example: A range of "let me check... actually no... wait, try this... hmm that didn't work"
+can become a single distillation: "Debugging session - resolved by [solution]" with one
+retained fact about the fix. The back-and-forth is gone, the conclusion remains.
 
 **TIME AWARENESS:**
 - Recent content: Keep more detail (might need to reference or backtrack)
