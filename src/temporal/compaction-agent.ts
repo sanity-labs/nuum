@@ -83,14 +83,22 @@ function buildCompactionTaskPrompt(
   currentTokens: number,
   targetTokens: number,
   recencyBuffer: number,
+  force?: boolean,
 ): string {
+  const underTarget = currentTokens <= targetTokens;
+  const sizeSection = underTarget && force
+    ? `**Current size:** ~${currentTokens.toLocaleString()} tokens (already under target)
+**Target size:** ~${targetTokens.toLocaleString()} tokens
+**Mode:** Cleanup mode - remove cruft and noise even though under target`
+    : `**Current size:** ~${currentTokens.toLocaleString()} tokens
+**Target size:** ~${targetTokens.toLocaleString()} tokens
+**To distill:** ~${(currentTokens - targetTokens).toLocaleString()} tokens`;
+
   return `## Working Memory Optimization Task
 
-Your working memory (conversation history) has grown large and needs to be optimized for effective action.
+Your working memory (conversation history) needs to be optimized for effective action.
 
-**Current size:** ~${currentTokens.toLocaleString()} tokens
-**Target size:** ~${targetTokens.toLocaleString()} tokens
-**To distill:** ~${(currentTokens - targetTokens).toLocaleString()} tokens
+${sizeSection}
 **Recency buffer:** ${recencyBuffer} most recent messages are protected
 
 The conversation above contains IDs you can reference:
@@ -433,13 +441,14 @@ export async function runCompaction(
   const model = Provider.getModelForTier("workhorse");
 
   // Outer loop: keep compacting until under budget or max turns
+  // When forced, let the agent decide when to stop (don't auto-break at target)
   for (let turn = 0; turn < MAX_COMPACTION_TURNS; turn++) {
     result.turnsUsed++;
 
     // Check current effective view size
     const currentTokens = await getEffectiveViewTokens(storage.temporal);
 
-    if (currentTokens <= config.compactionTarget) {
+    if (currentTokens <= config.compactionTarget && !config.force) {
       log.info("compaction target reached", {
         current: currentTokens,
         target: config.compactionTarget,
@@ -479,6 +488,7 @@ export async function runCompaction(
       currentTokens,
       config.compactionTarget,
       recencyBuffer,
+      config.force,
     );
 
     // Agent messages: refreshed history + compaction task
