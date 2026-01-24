@@ -503,12 +503,16 @@ Example structure:
 - \`ltm_glob(pattern)\` - Browse tree ("/*" for top level, "/**" for all)
 - \`ltm_search(query)\` - Find entries by keyword (ALWAYS search before creating!)
 - \`ltm_read(slug)\` - Read full entry content
-- \`ltm_create(slug, title, body, parentPath?)\` - New entry
+- \`ltm_create(slug, parentSlug, title, body)\` - New entry (parentSlug=null for root, or parent's slug)
 - \`ltm_update(slug, body, version)\` - Full rewrite (CAS)
 - \`ltm_edit(slug, old, new, version)\` - Surgical edit (CAS)
-- \`ltm_reparent(slug, newParentPath, version)\` - Move entry
-- \`ltm_rename(slug, newSlug, version)\` - Change slug
+- \`ltm_reparent(slug, newParentSlug, version)\` - Move entry to new parent
+- \`ltm_rename(slug, newSlug, version)\` - Change entry slug
 - \`ltm_archive(slug, version)\` - Remove outdated entry
+
+To create a tree:
+1. Create parent first: \`ltm_create("miriad-code", null, "My Codebase", "Index of codebase knowledge...")\`
+2. Create children with parentSlug: \`ltm_create("protocol", "miriad-code", "Protocol", "...")\`
 
 **Codebase Research:**
 - \`read(filePath)\` - Read a file to verify/enrich knowledge
