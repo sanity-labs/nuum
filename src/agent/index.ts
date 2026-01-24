@@ -29,6 +29,7 @@ import {
   GrepTool,
   WebSearchTool,
   WebFetchTool,
+  McpStatusTool,
   LTMGlobTool,
   LTMSearchTool,
   LTMReadTool,
@@ -97,6 +98,13 @@ function summarizeToolResult(toolName: string, result: string): string {
     case "ltm_reparent":
     case "ltm_rename":
       return result.slice(0, 60)
+    case "mcp_status": {
+      const match = result.match(/(\d+)\/(\d+) servers connected, (\d+) tools/)
+      if (match) {
+        return `${match[1]}/${match[2]} servers, ${match[3]} tools`
+      }
+      return "MCP status retrieved"
+    }
     default:
       // Generic: show truncated result
       return result.length > 60 ? result.slice(0, 57) + "..." : result
@@ -279,6 +287,13 @@ function buildTools(
     parameters: WebFetchTool.definition.parameters,
     execute: async (args, { toolCallId }) =>
       safeExecute("web_fetch", () => WebFetchTool.definition.execute(args, factory.createContext(toolCallId))),
+  })
+
+  tools.mcp_status = tool({
+    description: McpStatusTool.definition.description,
+    parameters: McpStatusTool.definition.parameters,
+    execute: async (args, { toolCallId }) =>
+      safeExecute("mcp_status", () => McpStatusTool.definition.execute(args, factory.createContext(toolCallId))),
   })
 
   // Present state tools - inline execution
