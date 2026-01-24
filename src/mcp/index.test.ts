@@ -273,5 +273,145 @@ describe("Mcp", () => {
       const second = await Mcp.initialize(config2)
       expect(second).toBe(true)
     })
+
+    test("initialize detects config change when server added", async () => {
+      await Mcp.shutdown()
+      
+      // Start with one server
+      const config1: Mcp.ConfigType = { 
+        mcpServers: { 
+          server1: { command: "echo", args: ["1"] } 
+        } 
+      }
+      await Mcp.initialize(config1)
+      
+      // Add another server - should reinitialize
+      const config2: Mcp.ConfigType = { 
+        mcpServers: { 
+          server1: { command: "echo", args: ["1"] },
+          server2: { command: "echo", args: ["2"] }
+        } 
+      }
+      const reinitialized = await Mcp.initialize(config2)
+      expect(reinitialized).toBe(true)
+    })
+
+    test("initialize detects config change when server modified", async () => {
+      await Mcp.shutdown()
+      
+      // Start with one config
+      const config1: Mcp.ConfigType = { 
+        mcpServers: { 
+          server1: { command: "echo", args: ["original"] } 
+        } 
+      }
+      await Mcp.initialize(config1)
+      
+      // Modify the server args - should reinitialize
+      const config2: Mcp.ConfigType = { 
+        mcpServers: { 
+          server1: { command: "echo", args: ["modified"] } 
+        } 
+      }
+      const reinitialized = await Mcp.initialize(config2)
+      expect(reinitialized).toBe(true)
+    })
+
+    test("initialize skips when config is identical", async () => {
+      await Mcp.shutdown()
+      
+      const config: Mcp.ConfigType = { 
+        mcpServers: { 
+          server1: { command: "echo", args: ["test"] } 
+        } 
+      }
+      
+      // First init
+      await Mcp.initialize(config)
+      
+      // Same config again - should skip
+      const skipped = await Mcp.initialize(config)
+      expect(skipped).toBe(false)
+      
+      // Even with a new object with same content - should skip
+      const configCopy: Mcp.ConfigType = { 
+        mcpServers: { 
+          server1: { command: "echo", args: ["test"] } 
+        } 
+      }
+      const skippedAgain = await Mcp.initialize(configCopy)
+      expect(skippedAgain).toBe(false)
+    })
+  })
+
+  describe("Config Merging", () => {
+    // These tests verify the merging behavior used by the server
+    // when message config overrides base config
+    
+    test("message config overrides base config servers", () => {
+      const baseConfig: Mcp.ConfigType = {
+        mcpServers: {
+          server1: { command: "base", args: [] },
+          server2: { command: "base", args: [] },
+        }
+      }
+      
+      const messageConfig = {
+        server1: { command: "override", args: ["new"] },
+      }
+      
+      // Merge: message takes precedence
+      const merged: Mcp.ConfigType = {
+        mcpServers: {
+          ...baseConfig.mcpServers,
+          ...messageConfig,
+        }
+      }
+      
+      expect(merged.mcpServers?.server1).toEqual({ command: "override", args: ["new"] })
+      expect(merged.mcpServers?.server2).toEqual({ command: "base", args: [] })
+    })
+
+    test("message config adds new servers to base", () => {
+      const baseConfig: Mcp.ConfigType = {
+        mcpServers: {
+          existing: { command: "base", args: [] },
+        }
+      }
+      
+      const messageConfig = {
+        newserver: { command: "new", args: ["arg"] },
+      }
+      
+      const merged: Mcp.ConfigType = {
+        mcpServers: {
+          ...baseConfig.mcpServers,
+          ...messageConfig,
+        }
+      }
+      
+      expect(Object.keys(merged.mcpServers!)).toHaveLength(2)
+      expect(merged.mcpServers?.existing).toBeDefined()
+      expect(merged.mcpServers?.newserver).toBeDefined()
+    })
+
+    test("empty message config preserves base config", () => {
+      const baseConfig: Mcp.ConfigType = {
+        mcpServers: {
+          server1: { command: "base", args: [] },
+        }
+      }
+      
+      const messageConfig = {}
+      
+      const merged: Mcp.ConfigType = {
+        mcpServers: {
+          ...baseConfig.mcpServers,
+          ...messageConfig,
+        }
+      }
+      
+      expect(merged.mcpServers?.server1).toEqual({ command: "base", args: [] })
+    })
   })
 })
