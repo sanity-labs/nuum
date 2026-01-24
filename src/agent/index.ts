@@ -51,6 +51,13 @@ const log = Log.create({ service: "agent" })
 const MAX_TURNS = 50
 
 /**
+ * Flag to prevent concurrent compaction runs.
+ * Compaction runs asynchronously in the background, so we need to
+ * ensure only one compaction is running at a time.
+ */
+let compactionInProgress = false
+
+/**
  * Estimate token count from text (rough approximation).
  * ~4 chars per token for English text.
  * Used for temporal message logging.
@@ -342,6 +349,13 @@ export async function shutdownMcp(): Promise<void> {
 }
 
 /**
+ * Check if compaction is currently running in the background.
+ */
+export function isCompactionInProgress(): boolean {
+  return compactionInProgress
+}
+
+/**
  * Run the main agent loop.
  */
 export async function runAgent(
@@ -514,7 +528,10 @@ export async function runAgent(
   onEvent?.({ type: "done", content: result.finalText })
 
   // Check if compaction is needed after the agent turn
-  await maybeRunCompaction(storage, onEvent)
+  // Fire-and-forget: don't block the main agent while compaction runs
+  maybeRunCompaction(storage, onEvent).catch((error) => {
+    log.error("background compaction failed", { error: error instanceof Error ? error.message : String(error) })
+  })
 
   return {
     response: result.finalText,
@@ -529,11 +546,20 @@ export async function runAgent(
  * Check if compaction should be triggered and run it if needed.
  * Runs LTM consolidation BEFORE compaction to extract durable knowledge
  * while raw messages are still available.
+ * 
+ * This runs asynchronously in the background - the main agent doesn't wait.
+ * Only one compaction can run at a time.
  */
 async function maybeRunCompaction(
   storage: Storage,
   onEvent?: (event: AgentEvent) => void,
 ): Promise<CompactionResult | null> {
+  // Skip if compaction is already running
+  if (compactionInProgress) {
+    log.info("skipping compaction check - already in progress")
+    return null
+  }
+
   const config = Config.get()
 
   const shouldCompact = await shouldTriggerCompaction(
@@ -549,7 +575,9 @@ async function maybeRunCompaction(
     return null
   }
 
-  log.info("compaction triggered", {
+  // Set flag before starting compaction
+  compactionInProgress = true
+  log.info("compaction triggered (running in background)", {
     threshold: config.tokenBudgets.compactionThreshold,
     target: config.tokenBudgets.compactionTarget,
   })
@@ -619,5 +647,8 @@ async function maybeRunCompaction(
       content: `Compaction failed: ${error instanceof Error ? error.message : String(error)}`,
     })
     return null
+  } finally {
+    // Always clear the flag when done
+    compactionInProgress = false
   }
 }
