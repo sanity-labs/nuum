@@ -156,12 +156,27 @@ describe("message builders", () => {
     expect(msg.message.content).toEqual([{ type: "text", text: "Hello" }])
   })
 
+  test("assistantText includes session_id when provided", () => {
+    const msg = assistantText("Hello", "claude-sonnet-4-20250514", "sess_123")
+    expect(msg.session_id).toBe("sess_123")
+  })
+
+  test("assistantText has undefined session_id when not provided", () => {
+    const msg = assistantText("Hello", "claude-sonnet-4-20250514")
+    expect(msg.session_id).toBeUndefined()
+  })
+
   test("assistantToolUse creates tool_use content block", () => {
     const msg = assistantToolUse("call_123", "read", { filePath: "/foo" }, "claude-sonnet-4-20250514")
     expect(msg.type).toBe("assistant")
     expect(msg.message.content).toEqual([
       { type: "tool_use", id: "call_123", name: "read", input: { filePath: "/foo" } },
     ])
+  })
+
+  test("assistantToolUse includes session_id when provided", () => {
+    const msg = assistantToolUse("call_123", "read", {}, "model", "sess_456")
+    expect(msg.session_id).toBe("sess_456")
   })
 
   test("toolResult creates tool_result block", () => {
@@ -213,6 +228,49 @@ describe("message builders", () => {
     const msg = systemMessage("queued", { session_id: "sess_1", position: 2 })
     expect(msg.subtype).toBe("queued")
     expect(msg.position).toBe(2)
+  })
+
+  test("systemMessage for init (CAST integration)", () => {
+    const msg = systemMessage("init", {
+      session_id: "sess_123",
+      model: "claude-opus-4-5-20251101",
+      tools: ["read", "write", "bash"],
+    })
+    expect(msg.type).toBe("system")
+    expect(msg.subtype).toBe("init")
+    expect(msg.session_id).toBe("sess_123")
+    expect(msg.model).toBe("claude-opus-4-5-20251101")
+    expect(msg.tools).toEqual(["read", "write", "bash"])
+  })
+
+  test("systemMessage for heartbeat_ack (CAST integration)", () => {
+    const timestamp = new Date().toISOString()
+    const msg = systemMessage("heartbeat_ack", {
+      timestamp,
+      session_id: "sess_123",
+    })
+    expect(msg.type).toBe("system")
+    expect(msg.subtype).toBe("heartbeat_ack")
+    expect(msg.timestamp).toBe(timestamp)
+    expect(msg.session_id).toBe("sess_123")
+  })
+
+  test("systemMessage for interrupted", () => {
+    const msg = systemMessage("interrupted", { session_id: "sess_123" })
+    expect(msg.subtype).toBe("interrupted")
+    expect(msg.session_id).toBe("sess_123")
+  })
+
+  test("systemMessage for injected", () => {
+    const msg = systemMessage("injected", {
+      message_count: 2,
+      content_length: 150,
+      session_id: "sess_123",
+    })
+    expect(msg.subtype).toBe("injected")
+    expect(msg.message_count).toBe(2)
+    expect(msg.content_length).toBe(150)
+    expect(msg.session_id).toBe("sess_123")
   })
 })
 
