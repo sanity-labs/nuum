@@ -285,9 +285,18 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
     async searchFTS(query: string, limit: number = 20): Promise<FTSSearchResult[]> {
       // Use FTS5 MATCH with snippet() for highlighted excerpts
       // 
-      // Quote the entire query to prevent FTS5 from interpreting words
-      // as column names or operators (e.g., "agent" being parsed as column:value)
-      const escapedQuery = `"${query.replace(/"/g, '""')}"`
+      // Split query into words and join with OR for flexible matching
+      // This finds messages containing ANY of the search terms, ranked by relevance
+      // FTS5's BM25 ranking will prioritize messages with more matching terms
+      const words = query
+        .split(/\s+/)
+        .filter(w => w.length > 0)
+        .map(w => `"${w.replace(/"/g, '""')}"`) // Quote each word to escape special chars
+        .join(' OR ')
+      
+      if (!words) {
+        return []
+      }
       
       const results = await db._rawDb.prepare(`
         SELECT 
@@ -299,7 +308,7 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
         WHERE temporal_messages_fts MATCH ?
         ORDER BY rank
         LIMIT ?
-      `).all(escapedQuery, limit) as Array<{ id: string; type: string; snippet: string; rank: number }>
+      `).all(words, limit) as Array<{ id: string; type: string; snippet: string; rank: number }>
 
       return results.map(r => ({
         id: r.id,
