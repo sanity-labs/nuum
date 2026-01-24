@@ -15,17 +15,15 @@ import { tool } from "ai"
 import type {
   CoreMessage,
   CoreTool,
-  ToolCallPart,
-  ToolResultPart,
 } from "ai"
 import { z } from "zod"
 import type { Storage } from "../storage"
 import type { TemporalMessage, TemporalSummary, TemporalSummaryInsert } from "../storage/schema"
 import { Provider } from "../provider"
-import { Config } from "../config"
 import { Identifier } from "../id"
 import { Log } from "../util/log"
 import { buildSystemPrompt, buildConversationHistory } from "../agent"
+import { runAgentLoop, stopOnTool } from "../agent/loop"
 import { estimateSummaryTokens, type SummaryInput } from "./summary"
 
 const log = Log.create({ service: "compaction-agent" })
@@ -115,10 +113,29 @@ Tips:
 }
 
 /**
- * Build the compaction tools.
+ * Result of a compaction tool execution.
  */
-function buildCompactionTools(): Record<string, CoreTool> {
-  return {
+interface CompactionToolResult {
+  output: string
+  done: boolean
+  summaryCreated: boolean
+}
+
+/**
+ * Build the compaction tools with execute callbacks.
+ * Returns both the tools and a results map to track execution outcomes.
+ */
+function buildCompactionTools(
+  storage: Storage,
+  validIds: Set<string>,
+): {
+  tools: Record<string, CoreTool>
+  getLastResult: (toolCallId: string) => CompactionToolResult | undefined
+} {
+  // Track results by toolCallId for the agent loop to access
+  const results = new Map<string, CompactionToolResult>()
+
+  const tools: Record<string, CoreTool> = {
     create_summary: tool({
       description: "Create a summary that covers a range of the conversation. The summary subsumes all messages and summaries within the specified range.",
       parameters: z.object({
@@ -127,6 +144,85 @@ function buildCompactionTools(): Record<string, CoreTool> {
         narrative: z.string().describe("Prose summary of events in this range (2-4 sentences). Write from your perspective."),
         keyObservations: z.array(z.string()).describe("Array of specific facts, instructions, or decisions that must be retained."),
       }),
+      execute: async ({ startId, endId, narrative, keyObservations }, { toolCallId }) => {
+        // Validate IDs
+        if (!validIds.has(startId)) {
+          const result: CompactionToolResult = {
+            output: `Error: startId "${startId}" is not a visible ID. Use only IDs shown in the conversation history.`,
+            done: false,
+            summaryCreated: false,
+          }
+          results.set(toolCallId, result)
+          return result.output
+        }
+        if (!validIds.has(endId)) {
+          const result: CompactionToolResult = {
+            output: `Error: endId "${endId}" is not a visible ID. Use only IDs shown in the conversation history.`,
+            done: false,
+            summaryCreated: false,
+          }
+          results.set(toolCallId, result)
+          return result.output
+        }
+        if (startId > endId) {
+          const result: CompactionToolResult = {
+            output: `Error: startId must be <= endId (got ${startId} > ${endId})`,
+            done: false,
+            summaryCreated: false,
+          }
+          results.set(toolCallId, result)
+          return result.output
+        }
+
+        // Determine the order of the new summary
+        // If it subsumes any summaries, it's one order higher than the max subsumed
+        const summaries = await storage.temporal.getSummaries()
+        const subsumedSummaries = summaries.filter(
+          s => s.startId >= startId && s.endId <= endId
+        )
+        const maxSubsumedOrder = subsumedSummaries.length > 0
+          ? Math.max(...subsumedSummaries.map(s => s.orderNum))
+          : 0
+        const newOrder = maxSubsumedOrder + 1
+
+        // Create the summary
+        const input: SummaryInput = {
+          narrative,
+          keyObservations,
+          tags: [], // Could extract tags from content in future
+        }
+
+        const summaryInsert: TemporalSummaryInsert = {
+          id: Identifier.ascending("summary"),
+          orderNum: newOrder,
+          startId,
+          endId,
+          narrative: input.narrative,
+          keyObservations: JSON.stringify(input.keyObservations),
+          tags: JSON.stringify(input.tags),
+          tokenEstimate: estimateSummaryTokens(input),
+          createdAt: new Date().toISOString(),
+        }
+
+        await storage.temporal.createSummary(summaryInsert)
+
+        log.info("created summary", {
+          id: summaryInsert.id,
+          order: newOrder,
+          startId,
+          endId,
+          tokens: summaryInsert.tokenEstimate,
+          subsumed: subsumedSummaries.length,
+        })
+
+        const result: CompactionToolResult = {
+          output: `Created order-${newOrder} summary covering ${startId} → ${endId} (~${summaryInsert.tokenEstimate} tokens). ${subsumedSummaries.length > 0 ? `Subsumed ${subsumedSummaries.length} existing summaries.` : ""}`,
+          done: false,
+          summaryCreated: true,
+        }
+        results.set(toolCallId, result)
+        return result.output
+      },
     }),
 
     finish_compaction: tool({
@@ -134,115 +230,22 @@ function buildCompactionTools(): Record<string, CoreTool> {
       parameters: z.object({
         reason: z.string().describe("Brief explanation of why compaction is complete (e.g., 'reached target', 'recent content should stay detailed')"),
       }),
+      execute: async ({ reason }, { toolCallId }) => {
+        log.info("compaction finished", { reason })
+        const result: CompactionToolResult = {
+          output: `Compaction complete: ${reason}`,
+          done: true,
+          summaryCreated: false,
+        }
+        results.set(toolCallId, result)
+        return result.output
+      },
     }),
   }
-}
 
-/**
- * Execute a compaction tool call.
- */
-async function executeCompactionTool(
-  toolName: string,
-  args: Record<string, unknown>,
-  storage: Storage,
-  validIds: Set<string>,
-): Promise<{ output: string; done: boolean; summaryCreated: boolean }> {
-  switch (toolName) {
-    case "create_summary": {
-      const { startId, endId, narrative, keyObservations } = args as {
-        startId: string
-        endId: string
-        narrative: string
-        keyObservations: string[]
-      }
-
-      // Validate IDs
-      if (!validIds.has(startId)) {
-        return {
-          output: `Error: startId "${startId}" is not a visible ID. Use only IDs shown in the conversation history.`,
-          done: false,
-          summaryCreated: false,
-        }
-      }
-      if (!validIds.has(endId)) {
-        return {
-          output: `Error: endId "${endId}" is not a visible ID. Use only IDs shown in the conversation history.`,
-          done: false,
-          summaryCreated: false,
-        }
-      }
-      if (startId > endId) {
-        return {
-          output: `Error: startId must be <= endId (got ${startId} > ${endId})`,
-          done: false,
-          summaryCreated: false,
-        }
-      }
-
-      // Determine the order of the new summary
-      // If it subsumes any summaries, it's one order higher than the max subsumed
-      const summaries = await storage.temporal.getSummaries()
-      const subsumedSummaries = summaries.filter(
-        s => s.startId >= startId && s.endId <= endId
-      )
-      const maxSubsumedOrder = subsumedSummaries.length > 0
-        ? Math.max(...subsumedSummaries.map(s => s.orderNum))
-        : 0
-      const newOrder = maxSubsumedOrder + 1
-
-      // Create the summary
-      const input: SummaryInput = {
-        narrative,
-        keyObservations,
-        tags: [], // Could extract tags from content in future
-      }
-
-      const summaryInsert: TemporalSummaryInsert = {
-        id: Identifier.ascending("summary"),
-        orderNum: newOrder,
-        startId,
-        endId,
-        narrative: input.narrative,
-        keyObservations: JSON.stringify(input.keyObservations),
-        tags: JSON.stringify(input.tags),
-        tokenEstimate: estimateSummaryTokens(input),
-        createdAt: new Date().toISOString(),
-      }
-
-      await storage.temporal.createSummary(summaryInsert)
-
-      log.info("created summary", {
-        id: summaryInsert.id,
-        order: newOrder,
-        startId,
-        endId,
-        tokens: summaryInsert.tokenEstimate,
-        subsumed: subsumedSummaries.length,
-      })
-
-      return {
-        output: `Created order-${newOrder} summary covering ${startId} → ${endId} (~${summaryInsert.tokenEstimate} tokens). ${subsumedSummaries.length > 0 ? `Subsumed ${subsumedSummaries.length} existing summaries.` : ""}`,
-        done: false,
-        summaryCreated: true,
-      }
-    }
-
-    case "finish_compaction": {
-      const { reason } = args as { reason: string }
-      log.info("compaction finished", { reason })
-      return {
-        output: `Compaction complete: ${reason}`,
-        done: true,
-        summaryCreated: false,
-      }
-    }
-
-    default:
-      return {
-        output: `Unknown tool: ${toolName}`,
-        done: false,
-        summaryCreated: false,
-      }
+  return {
+    tools,
+    getLastResult: (toolCallId: string) => results.get(toolCallId),
   }
 }
 
@@ -308,9 +311,6 @@ export async function runCompaction(
   // Get model (use workhorse tier - good balance of capability and cost)
   const model = Provider.getModelForTier("workhorse")
 
-  // Build tools
-  const tools = buildCompactionTools()
-
   // Outer loop: keep compacting until under budget or max turns
   for (let turn = 0; turn < MAX_COMPACTION_TURNS; turn++) {
     result.turnsUsed++
@@ -335,6 +335,9 @@ export async function runCompaction(
     const allSummaries = await storage.temporal.getSummaries()
     const validIds = collectValidIds(allMessages, allSummaries)
 
+    // Build tools with execute callbacks (must rebuild each turn as validIds changes)
+    const { tools, getLastResult } = buildCompactionTools(storage, validIds)
+
     // Build task prompt (IDs are already visible in the conversation)
     const taskPrompt = buildCompactionTaskPrompt(
       currentTokens,
@@ -342,83 +345,38 @@ export async function runCompaction(
     )
 
     // Agent messages: refreshed history + compaction task
-    const agentMessages: CoreMessage[] = [
+    const initialMessages: CoreMessage[] = [
       ...refreshedHistoryTurns,
       { role: "user", content: `[SYSTEM: ${taskPrompt}]` },
     ]
 
-    // Inner agent loop for this turn
-    let turnDone = false
-    let innerTurns = 0
-    const maxInnerTurns = 5
+    // Run the inner agent loop using the generic loop abstraction
+    const loopResult = await runAgentLoop({
+      model,
+      systemPrompt,
+      initialMessages,
+      tools,
+      maxTokens: 4096,
+      temperature: 0,
+      maxTurns: 5,
+      isDone: stopOnTool("finish_compaction"),
+      onToolResult: (toolCallId, toolName) => {
+        // Track summaries created using our result tracking map
+        const toolResult = getLastResult(toolCallId)
+        if (toolResult?.summaryCreated) {
+          result.summariesCreated++
+        }
+      },
+    })
 
-    while (!turnDone && innerTurns < maxInnerTurns) {
-      innerTurns++
+    result.usage.inputTokens += loopResult.usage.inputTokens
+    result.usage.outputTokens += loopResult.usage.outputTokens
 
-      const response = await Provider.generate({
-        model,
-        system: systemPrompt,
-        messages: agentMessages,
-        tools,
-        maxTokens: 4096,
-        temperature: 0,
+    // Check if no tool calls were made (agent confused)
+    if (loopResult.turnsUsed === 1 && loopResult.messages.length === initialMessages.length + 1) {
+      log.warn("compaction agent made no tool calls", {
+        text: loopResult.finalText?.slice(0, 200)
       })
-
-      result.usage.inputTokens += response.usage.promptTokens
-      result.usage.outputTokens += response.usage.completionTokens
-
-      // Handle tool calls
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        const assistantParts: (import("ai").TextPart | ToolCallPart)[] = []
-        const toolResultParts: ToolResultPart[] = []
-
-        if (response.text) {
-          assistantParts.push({ type: "text", text: response.text })
-        }
-
-        for (const toolCall of response.toolCalls) {
-          assistantParts.push({
-            type: "tool-call",
-            toolCallId: toolCall.toolCallId,
-            toolName: toolCall.toolName,
-            args: toolCall.args,
-          })
-
-          const { output, done, summaryCreated } = await executeCompactionTool(
-            toolCall.toolName,
-            toolCall.args as Record<string, unknown>,
-            storage,
-            validIds,
-          )
-
-          toolResultParts.push({
-            type: "tool-result",
-            toolCallId: toolCall.toolCallId,
-            toolName: toolCall.toolName,
-            result: output,
-          })
-
-          if (summaryCreated) {
-            result.summariesCreated++
-          }
-
-          if (done) {
-            turnDone = true
-          }
-        }
-
-        agentMessages.push({ role: "assistant", content: assistantParts })
-        agentMessages.push({ role: "tool", content: toolResultParts })
-      } else {
-        // No tool calls - agent might be confused, end this turn
-        if (response.text) {
-          agentMessages.push({ role: "assistant", content: response.text })
-        }
-        log.warn("compaction agent made no tool calls", {
-          text: response.text?.slice(0, 200)
-        })
-        turnDone = true
-      }
     }
   }
 

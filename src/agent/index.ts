@@ -13,11 +13,6 @@ import { tool } from "ai"
 import type {
   CoreMessage,
   CoreTool,
-  CoreAssistantMessage,
-  CoreToolMessage,
-  ToolCallPart,
-  ToolResultPart,
-  TextPart,
 } from "ai"
 import { z } from "zod"
 import { Provider } from "../provider"
@@ -46,6 +41,7 @@ import {
   type CompactionResult,
 } from "../temporal"
 import { runConsolidationWorker, type ConsolidationResult } from "../ltm"
+import { runAgentLoop, AgentLoopCancelledError } from "./loop"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "agent" })
@@ -185,53 +181,125 @@ export async function buildConversationHistory(storage: Storage): Promise<CoreMe
 }
 
 /**
- * Convert our Tool definitions to AI SDK CoreTool format.
+ * Context factory for creating tool execution contexts.
+ * Centralizes context creation and LTM injection.
  */
-function buildTools(): Record<string, CoreTool> {
+interface ToolContextFactory {
+  createContext(callId: string): Tool.Context
+  createLTMContext(callId: string): Tool.Context & { extra: LTMToolContext }
+}
+
+function createToolContextFactory(
+  storage: Storage,
+  sessionId: string,
+  messageId: string,
+  abortSignal?: AbortSignal,
+): ToolContextFactory {
+  const baseContext = {
+    sessionID: sessionId,
+    messageID: messageId,
+    abort: abortSignal ?? new AbortController().signal,
+  }
+
+  return {
+    createContext(callId: string): Tool.Context {
+      return Tool.createContext({
+        ...baseContext,
+        callID: callId,
+      })
+    },
+    createLTMContext(callId: string): Tool.Context & { extra: LTMToolContext } {
+      const ctx = Tool.createContext({
+        ...baseContext,
+        callID: callId,
+      }) as Tool.Context & { extra: LTMToolContext }
+      ctx.extra = {
+        ltm: storage.ltm,
+        agentType: "main",
+      }
+      return ctx
+    },
+  }
+}
+
+/**
+ * Convert our Tool definitions to AI SDK CoreTool format with execute callbacks.
+ * This eliminates the need for a separate executeTool() switch statement.
+ */
+function buildTools(
+  storage: Storage,
+  sessionId: string,
+  messageId: string,
+  abortSignal?: AbortSignal,
+): Record<string, CoreTool> {
+  const factory = createToolContextFactory(storage, sessionId, messageId, abortSignal)
   const tools: Record<string, CoreTool> = {}
 
-  // Bash tool
+  // File operation tools - wire execute directly
   tools.bash = tool({
     description: BashTool.definition.description,
     parameters: BashTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await BashTool.definition.execute(args, factory.createContext(toolCallId))
+      return result.output
+    },
   })
 
-  // Read tool
   tools.read = tool({
     description: ReadTool.definition.description,
     parameters: ReadTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await ReadTool.definition.execute(args, factory.createContext(toolCallId))
+      return result.output
+    },
   })
 
-  // Write tool
   tools.write = tool({
     description: WriteTool.definition.description,
     parameters: WriteTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await WriteTool.definition.execute(args, factory.createContext(toolCallId))
+      return result.output
+    },
   })
 
-  // Edit tool
   tools.edit = tool({
     description: EditTool.definition.description,
     parameters: EditTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await EditTool.definition.execute(args, factory.createContext(toolCallId))
+      return result.output
+    },
   })
 
-  // Glob tool
   tools.glob = tool({
     description: GlobTool.definition.description,
     parameters: GlobTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await GlobTool.definition.execute(args, factory.createContext(toolCallId))
+      return result.output
+    },
   })
 
-  // Grep tool
   tools.grep = tool({
     description: GrepTool.definition.description,
     parameters: GrepTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await GrepTool.definition.execute(args, factory.createContext(toolCallId))
+      return result.output
+    },
   })
 
-  // Present state tools
+  // Present state tools - inline execution
   tools.present_set_mission = tool({
     description: "Set the current mission (high-level objective)",
     parameters: z.object({
       mission: z.string().nullable().describe("The mission to set, or null to clear"),
     }),
+    execute: async ({ mission }) => {
+      await storage.present.setMission(mission)
+      return `Mission ${mission ? "set to: " + mission : "cleared"}`
+    },
   })
 
   tools.present_set_status = tool({
@@ -239,6 +307,10 @@ function buildTools(): Record<string, CoreTool> {
     parameters: z.object({
       status: z.string().nullable().describe("The status to set, or null to clear"),
     }),
+    execute: async ({ status }) => {
+      await storage.present.setStatus(status)
+      return `Status ${status ? "set to: " + status : "cleared"}`
+    },
   })
 
   tools.present_update_tasks = tool({
@@ -253,157 +325,49 @@ function buildTools(): Record<string, CoreTool> {
         }),
       ),
     }),
+    execute: async ({ tasks }) => {
+      await storage.present.setTasks(tasks)
+      return `Tasks updated (${tasks.length} tasks)`
+    },
   })
 
-  // LTM retrieval tools (read-only access to knowledge base)
-  // Use shared tool definitions from src/tool/ltm.ts
+  // LTM retrieval tools - use shared definitions with LTM context
   tools.ltm_glob = tool({
     description: LTMGlobTool.definition.description,
     parameters: LTMGlobTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await LTMGlobTool.definition.execute(args, factory.createLTMContext(toolCallId))
+      return result.output
+    },
   })
 
   tools.ltm_search = tool({
     description: LTMSearchTool.definition.description,
     parameters: LTMSearchTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await LTMSearchTool.definition.execute(args, factory.createLTMContext(toolCallId))
+      return result.output
+    },
   })
 
   tools.ltm_read = tool({
     description: LTMReadTool.definition.description,
     parameters: LTMReadTool.definition.parameters,
+    execute: async (args, { toolCallId }) => {
+      const result = await LTMReadTool.definition.execute(args, factory.createLTMContext(toolCallId))
+      return result.output
+    },
   })
 
   return tools
 }
 
-/**
- * Execute a tool call and return the result.
- */
-async function executeTool(
-  toolName: string,
-  args: Record<string, unknown>,
-  storage: Storage,
-  sessionId: string,
-  messageId: string,
-  callId: string,
-  abortSignal?: AbortSignal,
-): Promise<string> {
-  const ctx = Tool.createContext({
-    sessionID: sessionId,
-    messageID: messageId,
-    callID: callId,
-    abort: abortSignal,
-  })
 
-  switch (toolName) {
-    case "bash": {
-      const result = await BashTool.definition.execute(args as z.infer<typeof BashTool.definition.parameters>, ctx)
-      return result.output
-    }
-    case "read": {
-      const result = await ReadTool.definition.execute(args as z.infer<typeof ReadTool.definition.parameters>, ctx)
-      return result.output
-    }
-    case "write": {
-      const result = await WriteTool.definition.execute(args as z.infer<typeof WriteTool.definition.parameters>, ctx)
-      return result.output
-    }
-    case "edit": {
-      const result = await EditTool.definition.execute(args as z.infer<typeof EditTool.definition.parameters>, ctx)
-      return result.output
-    }
-    case "glob": {
-      const result = await GlobTool.definition.execute(args as z.infer<typeof GlobTool.definition.parameters>, ctx)
-      return result.output
-    }
-    case "grep": {
-      const result = await GrepTool.definition.execute(args as z.infer<typeof GrepTool.definition.parameters>, ctx)
-      return result.output
-    }
-    case "present_set_mission": {
-      const { mission } = args as { mission: string | null }
-      await storage.present.setMission(mission)
-      return `Mission ${mission ? "set to: " + mission : "cleared"}`
-    }
-    case "present_set_status": {
-      const { status } = args as { status: string | null }
-      await storage.present.setStatus(status)
-      return `Status ${status ? "set to: " + status : "cleared"}`
-    }
-    case "present_update_tasks": {
-      const { tasks } = args as { tasks: Task[] }
-      await storage.present.setTasks(tasks)
-      return `Tasks updated (${tasks.length} tasks)`
-    }
-    // LTM retrieval tools - use shared implementations
-    case "ltm_glob": {
-      const ltmCtx = Tool.createContext({
-        sessionID: sessionId,
-        messageID: messageId,
-        callID: callId,
-        abort: abortSignal,
-      })
-      // Inject LTM context
-      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
-        ltm: storage.ltm,
-        agentType: "main",
-      }
-      const result = await LTMGlobTool.definition.execute(
-        args as z.infer<typeof LTMGlobTool.definition.parameters>,
-        ltmCtx as Tool.Context & { extra: LTMToolContext },
-      )
-      return result.output
-    }
-    case "ltm_search": {
-      const ltmCtx = Tool.createContext({
-        sessionID: sessionId,
-        messageID: messageId,
-        callID: callId,
-        abort: abortSignal,
-      })
-      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
-        ltm: storage.ltm,
-        agentType: "main",
-      }
-      const result = await LTMSearchTool.definition.execute(
-        args as z.infer<typeof LTMSearchTool.definition.parameters>,
-        ltmCtx as Tool.Context & { extra: LTMToolContext },
-      )
-      return result.output
-    }
-    case "ltm_read": {
-      const ltmCtx = Tool.createContext({
-        sessionID: sessionId,
-        messageID: messageId,
-        callID: callId,
-        abort: abortSignal,
-      })
-      ;(ltmCtx as Tool.Context & { extra: LTMToolContext }).extra = {
-        ltm: storage.ltm,
-        agentType: "main",
-      }
-      const result = await LTMReadTool.definition.execute(
-        args as z.infer<typeof LTMReadTool.definition.parameters>,
-        ltmCtx as Tool.Context & { extra: LTMToolContext },
-      )
-      return result.output
-    }
-    default:
-      throw new Error(`Unknown tool: ${toolName}`)
-  }
-}
 
 /**
- * Run the main agent loop.
+ * Re-export the cancellation error from the generic loop.
  */
-/**
- * Error thrown when the agent is cancelled via AbortSignal.
- */
-export class AgentCancelledError extends Error {
-  constructor() {
-    super("Agent execution cancelled")
-    this.name = "AgentCancelledError"
-  }
-}
+export { AgentLoopCancelledError as AgentCancelledError } from "./loop"
 
 /**
  * Run the main agent loop.
@@ -415,11 +379,6 @@ export async function runAgent(
   const { storage, onEvent, abortSignal } = options
   const sessionId = Identifier.ascending("session")
 
-  // Check if already cancelled
-  if (abortSignal?.aborted) {
-    throw new AgentCancelledError()
-  }
-
   // Get the model
   const model = Provider.getModelForTier("reasoning")
 
@@ -428,15 +387,6 @@ export async function runAgent(
 
   // Build conversation history as proper turns
   const historyTurns = await buildConversationHistory(storage)
-
-  // Build tools
-  const tools = buildTools()
-
-  // Initialize messages with history + current user prompt
-  const messages: CoreMessage[] = [
-    ...historyTurns,
-    { role: "user", content: prompt },
-  ]
 
   // Log user message to temporal
   const userMessageId = Identifier.ascending("message")
@@ -448,167 +398,93 @@ export async function runAgent(
     createdAt: new Date().toISOString(),
   })
 
+  // Build tools with execute callbacks wired up
+  const tools = buildTools(storage, sessionId, userMessageId, abortSignal)
+
+  // Initialize messages with history + current user prompt
+  const initialMessages: CoreMessage[] = [
+    ...historyTurns,
+    { role: "user", content: prompt },
+  ]
+
   onEvent?.({ type: "user", content: prompt })
 
-  let totalInputTokens = 0
-  let totalOutputTokens = 0
-  let finalResponse = ""
+  // Track whether we've logged the assistant text (to avoid double-logging)
+  let lastLoggedText = ""
 
-  // Agent loop
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    // Check for cancellation
-    if (abortSignal?.aborted) {
-      throw new AgentCancelledError()
-    }
+  // Run the generic agent loop with callbacks for temporal logging and events
+  const result = await runAgentLoop({
+    model,
+    systemPrompt,
+    initialMessages,
+    tools,
+    maxTokens: 8192,
+    maxTurns: MAX_TURNS,
+    abortSignal,
 
-    const result = await Provider.generate({
-      model,
-      system: systemPrompt,
-      messages,
-      tools,
-      maxTokens: 8192,
-    })
+    // Log assistant text to temporal and emit event
+    onText: async (text) => {
+      // Only log if this is new text (avoid double-logging on final turn)
+      if (text !== lastLoggedText) {
+        lastLoggedText = text
+        const assistantMessageId = Identifier.ascending("message")
+        await storage.temporal.appendMessage({
+          id: assistantMessageId,
+          type: "assistant",
+          content: text,
+          tokenEstimate: estimateTokens(text),
+          createdAt: new Date().toISOString(),
+        })
+        onEvent?.({ type: "assistant", content: text })
+      }
+    },
 
-    totalInputTokens += result.usage.promptTokens
-    totalOutputTokens += result.usage.completionTokens
-
-    // Handle text response
-    if (result.text) {
-      finalResponse = result.text
-
-      // Log to temporal
-      const assistantMessageId = Identifier.ascending("message")
+    // Log tool calls to temporal and emit event
+    onToolCall: async (toolCallId, toolName, args) => {
+      const toolCallMsgId = Identifier.ascending("message")
       await storage.temporal.appendMessage({
-        id: assistantMessageId,
-        type: "assistant",
-        content: result.text,
-        tokenEstimate: estimateTokens(result.text),
+        id: toolCallMsgId,
+        type: "tool_call",
+        content: JSON.stringify({ name: toolName, args }),
+        tokenEstimate: estimateTokens(JSON.stringify(args)),
         createdAt: new Date().toISOString(),
       })
+      onEvent?.({
+        type: "tool_call",
+        content: `${toolName}(${JSON.stringify(args).slice(0, 100)}...)`,
+        toolName,
+        toolCallId,
+      })
+    },
 
-      onEvent?.({ type: "assistant", content: result.text })
-    }
+    // Log tool results to temporal and emit event
+    onToolResult: async (toolCallId, toolName, toolResult) => {
+      const toolResultMsgId = Identifier.ascending("message")
+      await storage.temporal.appendMessage({
+        id: toolResultMsgId,
+        type: "tool_result",
+        content: toolResult,
+        tokenEstimate: estimateTokens(toolResult),
+        createdAt: new Date().toISOString(),
+      })
+      onEvent?.({
+        type: "tool_result",
+        content: toolResult.slice(0, 200) + (toolResult.length > 200 ? "..." : ""),
+        toolCallId,
+      })
+    },
+  })
 
-    // Handle tool calls
-    if (result.toolCalls && result.toolCalls.length > 0) {
-      // Build assistant message with tool calls
-      const assistantParts: (TextPart | ToolCallPart)[] = []
-
-      if (result.text) {
-        assistantParts.push({ type: "text", text: result.text })
-      }
-
-      const toolResultParts: ToolResultPart[] = []
-
-      for (const toolCall of result.toolCalls) {
-        assistantParts.push({
-          type: "tool-call",
-          toolCallId: toolCall.toolCallId,
-          toolName: toolCall.toolName,
-          args: toolCall.args,
-        })
-
-        // Log tool call to temporal
-        const toolCallMsgId = Identifier.ascending("message")
-        await storage.temporal.appendMessage({
-          id: toolCallMsgId,
-          type: "tool_call",
-          content: JSON.stringify({ name: toolCall.toolName, args: toolCall.args }),
-          tokenEstimate: estimateTokens(JSON.stringify(toolCall.args)),
-          createdAt: new Date().toISOString(),
-        })
-
-        onEvent?.({
-          type: "tool_call",
-          content: `${toolCall.toolName}(${JSON.stringify(toolCall.args).slice(0, 100)}...)`,
-          toolName: toolCall.toolName,
-          toolCallId: toolCall.toolCallId,
-        })
-
-        // Execute tool
-        let toolResult: string
-        try {
-          toolResult = await executeTool(
-            toolCall.toolName,
-            toolCall.args as Record<string, unknown>,
-            storage,
-            sessionId,
-            userMessageId,
-            toolCall.toolCallId,
-            abortSignal,
-          )
-        } catch (error) {
-          // Check if this was a cancellation
-          if (abortSignal?.aborted) {
-            throw new AgentCancelledError()
-          }
-          toolResult = `Error: ${error instanceof Error ? error.message : String(error)}`
-          onEvent?.({ type: "error", content: toolResult })
-        }
-
-        // Log tool result to temporal
-        const toolResultMsgId = Identifier.ascending("message")
-        await storage.temporal.appendMessage({
-          id: toolResultMsgId,
-          type: "tool_result",
-          content: toolResult,
-          tokenEstimate: estimateTokens(toolResult),
-          createdAt: new Date().toISOString(),
-        })
-
-        onEvent?.({
-          type: "tool_result",
-          content: toolResult.slice(0, 200) + (toolResult.length > 200 ? "..." : ""),
-          toolCallId: toolCall.toolCallId,
-        })
-
-        toolResultParts.push({
-          type: "tool-result",
-          toolCallId: toolCall.toolCallId,
-          toolName: toolCall.toolName,
-          result: toolResult,
-        })
-      }
-
-      // Add assistant message with tool calls
-      const assistantMsg: CoreAssistantMessage = {
-        role: "assistant",
-        content: assistantParts,
-      }
-      messages.push(assistantMsg)
-
-      // Add tool results
-      const toolMsg: CoreToolMessage = {
-        role: "tool",
-        content: toolResultParts,
-      }
-      messages.push(toolMsg)
-
-      // Continue the loop for more turns
-      continue
-    }
-
-    // No tool calls - we're done
-    if (result.text) {
-      const assistantMsg: CoreAssistantMessage = {
-        role: "assistant",
-        content: result.text,
-      }
-      messages.push(assistantMsg)
-    }
-    break
-  }
-
-  onEvent?.({ type: "done", content: finalResponse })
+  onEvent?.({ type: "done", content: result.finalText })
 
   // Check if compaction is needed after the agent turn
   await maybeRunCompaction(storage, onEvent)
 
   return {
-    response: finalResponse,
+    response: result.finalText,
     usage: {
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
     },
   }
 }

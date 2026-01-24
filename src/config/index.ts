@@ -31,9 +31,9 @@ export namespace Config {
       /** Max tokens for temporal view in prompt */
       temporalBudget: z.number().default(64_000),
       /** Trigger compaction when uncompacted exceeds this */
-      compactionThreshold: z.number().default(16_000),
+      compactionThreshold: z.number().default(20_000),
       /** Target size after compaction */
-      compactionTarget: z.number().default(48_000),
+      compactionTarget: z.number().default(15_000),
       /** Temporal search sub-agent budget (Sonnet 1M beta) */
       temporalQueryBudget: z.number().default(512_000),
       /** LTM reflection sub-agent budget (Opus) */
