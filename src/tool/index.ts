@@ -32,3 +32,21 @@ export {
   type LTMToolContext,
   type LTMMetadata,
 } from "./ltm"
+
+// Distillation agent tools
+export {
+  buildDistillationTools,
+  buildCreateDistillationTool,
+  buildFinishDistillationTool,
+  type DistillationToolResult,
+  type DistillationToolContext,
+} from "./distillation"
+
+// Reflection agent tools
+export {
+  buildReflectionSearchTools,
+  buildSearchMessagesTool,
+  buildGetMessageTool,
+  buildFinishReflectionTool,
+  type ReflectionSearchContext,
+} from "./reflection-search"

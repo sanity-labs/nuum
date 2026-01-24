@@ -19,46 +19,42 @@
  * 4. Loops until the token budget target is met
  */
 
-import { tool } from "ai";
-import type { CoreMessage, CoreTool } from "ai";
-import { z } from "zod";
-import type { Storage } from "../storage";
-import type {
-  TemporalMessage,
-  TemporalSummary,
-  TemporalSummaryInsert,
-} from "../storage/schema";
-import { Provider } from "../provider";
-import { Identifier } from "../id";
-import { Log } from "../util/log";
-import { activity } from "../util/activity-log";
-import { Config } from "../config";
-import { buildAgentContext, buildConversationHistory } from "../context";
-import { runAgentLoop, stopOnTool } from "../agent/loop";
-import { estimateSummaryTokens, type SummaryInput } from "./summary";
-import { getEffectiveViewTokens } from "./compaction";
+import type { CoreMessage } from "ai"
+import type { Storage } from "../storage"
+import type { TemporalMessage, TemporalSummary } from "../storage/schema"
+import { Provider } from "../provider"
+import { Log } from "../util/log"
+import { Config } from "../config"
+import { buildAgentContext, buildConversationHistory } from "../context"
+import { runAgentLoop, stopOnTool } from "../agent/loop"
+import { getEffectiveViewTokens } from "./compaction"
+import { Identifier } from "../id"
+import {
+  buildDistillationTools,
+  type DistillationToolResult,
+} from "../tool/distillation"
 
-const log = Log.create({ service: "compaction-agent" });
+const log = Log.create({ service: "compaction-agent" })
 
-const MAX_COMPACTION_TURNS = 10;
+const MAX_COMPACTION_TURNS = 10
 
 /**
  * Result of a compaction run.
  */
 export interface CompactionResult {
   /** Number of distillations created */
-  distillationsCreated: number;
+  distillationsCreated: number
   /** Total tokens before compaction */
-  tokensBefore: number;
+  tokensBefore: number
   /** Total tokens after compaction */
-  tokensAfter: number;
+  tokensAfter: number
   /** Number of agent turns taken */
-  turnsUsed: number;
+  turnsUsed: number
   /** Token usage for the agent */
   usage: {
-    inputTokens: number;
-    outputTokens: number;
-  };
+    inputTokens: number
+    outputTokens: number
+  }
 }
 
 /**
@@ -66,11 +62,11 @@ export interface CompactionResult {
  */
 export interface CompactionConfig {
   /** Trigger compaction when uncompacted tokens exceed this threshold */
-  compactionThreshold: number;
+  compactionThreshold: number
   /** Target token count after compaction completes */
-  compactionTarget: number;
-  /** Force run even if already under target */
-  force?: boolean;
+  compactionTarget: number
+  /** Force compaction even if under target (for cleanup) */
+  force?: boolean
 }
 
 /**
@@ -84,7 +80,7 @@ function buildCompactionTaskPrompt(
   targetTokens: number,
   recencyBuffer: number,
 ): string {
-  const underTarget = currentTokens <= targetTokens;
+  const underTarget = currentTokens <= targetTokens
 
   return `## Working Memory Optimization Task
 
@@ -124,31 +120,19 @@ The goal IS operational distillation - retaining what you need to act effectivel
 - Narrative filler ("I'll help you with that", "Let me check")
 - Redundant information already captured elsewhere
 - Casual chatter, greetings, acknowledgments
-- Questions that were immediately answered
+- Questions that were immediately answered (keep only the answer)
 - Exploratory tangents that didn't lead anywhere
-- Generally older, irrelevant sections: Summarize them even if the budget allows for them.
-- When the history is long, some times you just have to clean old blocks up. Consider grab bag summaries for swathes of old cruft.
-
-**MAXIMIZE (elimination)**
-- A great summary is useful, but capture the whole sequence.
-- An optimal destilation subsumes the longest possible sequence in them most compact, yet accurat destillate
-- Leaving cruft in the history is noisy and leads to a messy working environment.
-
-
-**ELIMINATION DISTILLATIONS:**
-Not every distillation needs rich content. If a range of messages contains mostly noise
-(chatter, false starts, trivial exchanges), create a minimal distillation that simply
-removes it from working memory. A distillation with brief operationalContext and few/no
-retainedFacts is perfectly valid when the goal is elimination rather than preservation.
-
-Example: A range of "let me check... actually no... wait, try this... hmm that didn't work"
-can become a single distillation: "Debugging session - resolved by [solution]" with one
-retained fact about the fix. The back-and-forth is gone, the conclusion remains.
 
 **TIME AWARENESS:**
 - Recent content: Keep more detail (might need to reference or backtrack)
 - Older content: Distill more aggressively to conclusions
 - Ancient content: Should be heavily compressed - just outcomes and key facts
+
+**ELIMINATION DISTILLATIONS:**
+Sometimes the best distillation is minimal or empty. If a range contains only noise
+(greetings, false starts, debugging that led nowhere), it's valid to create a
+distillation with just "Eliminated noise" and no retained facts. The goal is
+optimizing working memory, not preserving everything.
 
 ## Instructions
 
@@ -170,213 +154,7 @@ For each distillation, call **create_distillation** with:
 Call **finish_distillation** when you've optimized enough or no more distillation is beneficial.
 
 **Remember:** You're optimizing your own working memory. Keep what helps you act with precision.
-`;
-}
-
-/**
- * Result of a distillation tool execution.
- */
-interface DistillationToolResult {
-  output: string;
-  done: boolean;
-  distillationCreated: boolean;
-}
-
-/**
- * Build the distillation tools with execute callbacks.
- * Returns both the tools and a results map to track execution outcomes.
- */
-function buildCompactionTools(
-  storage: Storage,
-  validIds: Set<string>,
-  targetTokens: number,
-): {
-  tools: Record<string, CoreTool>;
-  getLastResult: (toolCallId: string) => DistillationToolResult | undefined;
-} {
-  // Track results by toolCallId for the agent loop to access
-  const results = new Map<string, DistillationToolResult>();
-
-  const tools: Record<string, CoreTool> = {
-    create_distillation: tool({
-      description:
-        "Distill a range of conversation into optimized working memory. Focuses on retaining actionable intelligence while excising noise. Eliminating old cruft is also a form of optimization.",
-      parameters: z.object({
-        startId: z
-          .string()
-          .describe(
-            "ULID of the first item to include (inclusive). Must be a visible ID.",
-          ),
-        endId: z
-          .string()
-          .describe(
-            "ULID of the last item to include (inclusive). Must be a visible ID.",
-          ),
-        operationalContext: z
-          .string()
-          .describe(
-            "Focused paragraph of what was accomplished, decided, or learned. Write as working notes - concrete and actionable, not narrative prose. Include file paths, specific values, and rationale for decisions.",
-          ),
-        retainedFacts: z
-          .array(z.string())
-          .describe(
-            "Array of specific, referenceable facts. Each should be concrete and actionable, e.g., 'Protocol server is at src/jsonrpc/index.ts' or 'User prefers simplicity over backwards compatibility'.",
-          ),
-      }),
-      execute: async (
-        { startId, endId, operationalContext, retainedFacts },
-        { toolCallId },
-      ) => {
-        // Validate IDs
-        if (!validIds.has(startId)) {
-          const result: DistillationToolResult = {
-            output: `Error: startId "${startId}" is not a visible ID. Use only IDs shown in the conversation history.`,
-            done: false,
-            distillationCreated: false,
-          };
-          results.set(toolCallId, result);
-          return result.output;
-        }
-        if (!validIds.has(endId)) {
-          const result: DistillationToolResult = {
-            output: `Error: endId "${endId}" is not a visible ID. Use only IDs shown in the conversation history.`,
-            done: false,
-            distillationCreated: false,
-          };
-          results.set(toolCallId, result);
-          return result.output;
-        }
-        if (startId > endId) {
-          const result: DistillationToolResult = {
-            output: `Error: startId must be <= endId (got ${startId} > ${endId})`,
-            done: false,
-            distillationCreated: false,
-          };
-          results.set(toolCallId, result);
-          return result.output;
-        }
-
-        // Adjust boundaries to avoid cutting tool_call/tool_result pairs
-        // Get messages in and around the range to check for orphaned pairs
-        const allMessages = await storage.temporal.getMessages();
-        const sortedMessages = [...allMessages].sort((a, b) =>
-          a.id.localeCompare(b.id),
-        );
-
-        let adjustedStartId = startId;
-        let adjustedEndId = endId;
-
-        // Find the message at startId - if it's a tool_result, include the preceding tool_call
-        const startIdx = sortedMessages.findIndex((m) => m.id === startId);
-        if (startIdx > 0) {
-          const startMsg = sortedMessages[startIdx];
-          const prevMsg = sortedMessages[startIdx - 1];
-          if (
-            startMsg?.type === "tool_result" &&
-            prevMsg?.type === "tool_call"
-          ) {
-            adjustedStartId = prevMsg.id;
-          }
-        }
-
-        // Find the message at endId - if it's a tool_call, include the following tool_result
-        const endIdx = sortedMessages.findIndex((m) => m.id === endId);
-        if (endIdx >= 0 && endIdx < sortedMessages.length - 1) {
-          const endMsg = sortedMessages[endIdx];
-          const nextMsg = sortedMessages[endIdx + 1];
-          if (endMsg?.type === "tool_call" && nextMsg?.type === "tool_result") {
-            adjustedEndId = nextMsg.id;
-          }
-        }
-
-        // Determine the order of the new distillation
-        // If it subsumes any existing distillations, it's one order higher than the max subsumed
-        const summaries = await storage.temporal.getSummaries();
-        const subsumedSummaries = summaries.filter(
-          (s) => s.startId >= adjustedStartId && s.endId <= adjustedEndId,
-        );
-        const maxSubsumedOrder =
-          subsumedSummaries.length > 0
-            ? Math.max(...subsumedSummaries.map((s) => s.orderNum))
-            : 0;
-        const newOrder = maxSubsumedOrder + 1;
-
-        // Create the distillation (stored as summary for compatibility)
-        const input: SummaryInput = {
-          narrative: operationalContext,
-          keyObservations: retainedFacts,
-          tags: [], // Could extract tags from content in future
-        };
-
-        const summaryInsert: TemporalSummaryInsert = {
-          id: Identifier.ascending("summary"),
-          orderNum: newOrder,
-          startId: adjustedStartId,
-          endId: adjustedEndId,
-          narrative: input.narrative,
-          keyObservations: JSON.stringify(input.keyObservations),
-          tags: JSON.stringify(input.tags),
-          tokenEstimate: estimateSummaryTokens(input),
-          createdAt: new Date().toISOString(),
-        };
-
-        await storage.temporal.createSummary(summaryInsert);
-
-        // Note if boundaries were adjusted to preserve tool call pairs
-        const wasAdjusted =
-          adjustedStartId !== startId || adjustedEndId !== endId;
-        const adjustmentNote = wasAdjusted
-          ? ` (adjusted to ${adjustedStartId} → ${adjustedEndId} to preserve tool call pairs)`
-          : "";
-
-        // Get current token count to report progress
-        const currentTokens = await getEffectiveViewTokens(storage.temporal);
-        const atTarget = currentTokens <= targetTokens;
-        const tokenStatus = atTarget
-          ? `\n\n**Status:** ${currentTokens.toLocaleString()} tokens (✓ at/under target of ${targetTokens.toLocaleString()}). You may call finish_distillation or continue cleaning up.`
-          : `\n\n**Status:** ${currentTokens.toLocaleString()} tokens (target: ${targetTokens.toLocaleString()}, need to distill ~${(currentTokens - targetTokens).toLocaleString()} more)`;
-
-        activity.distillation.info(
-          `Created order-${newOrder} distillation (${summaryInsert.tokenEstimate} tokens, ${retainedFacts.length} facts) → ${currentTokens.toLocaleString()} tokens${atTarget ? " ✓" : ""}`,
-        );
-
-        const result: DistillationToolResult = {
-          output: `Created order-${newOrder} distillation covering ${adjustedStartId} → ${adjustedEndId} (~${summaryInsert.tokenEstimate} tokens, ${retainedFacts.length} facts retained).${adjustmentNote}${subsumedSummaries.length > 0 ? ` Subsumed ${subsumedSummaries.length} existing distillations.` : ""}${tokenStatus}`,
-          done: false,
-          distillationCreated: true,
-        };
-        results.set(toolCallId, result);
-        return result.output;
-      },
-    }),
-
-    finish_distillation: tool({
-      description:
-        "Signal that working memory optimization is complete. Call when you've distilled enough or no more optimization is beneficial.",
-      parameters: z.object({
-        reason: z
-          .string()
-          .describe(
-            "Brief explanation (e.g., 'reached target', 'recent content needs detail for ongoing work')",
-          ),
-      }),
-      execute: async ({ reason }, { toolCallId }) => {
-        log.info("distillation finished", { reason });
-        const result: DistillationToolResult = {
-          output: `Distillation complete: ${reason}`,
-          done: true,
-          distillationCreated: false,
-        };
-        results.set(toolCallId, result);
-        return result.output;
-      },
-    }),
-  };
-
-  return {
-    tools,
-    getLastResult: (toolCallId: string) => results.get(toolCallId),
-  };
+`
 }
 
 /**
@@ -393,30 +171,30 @@ function collectValidIds(
   summaries: TemporalSummary[],
   recencyBuffer: number,
 ): { validIds: Set<string>; recencyCutoffId: string | null } {
-  const ids = new Set<string>();
+  const ids = new Set<string>()
 
   // Sort messages chronologically
-  const sortedMessages = [...messages].sort((a, b) => a.id.localeCompare(b.id));
+  const sortedMessages = [...messages].sort((a, b) => a.id.localeCompare(b.id))
 
   // Determine the cutoff point - messages before this can be summarized
-  const cutoffIndex = Math.max(0, sortedMessages.length - recencyBuffer);
+  const cutoffIndex = Math.max(0, sortedMessages.length - recencyBuffer)
   const recencyCutoffId =
-    cutoffIndex > 0 ? (sortedMessages[cutoffIndex - 1]?.id ?? null) : null;
+    cutoffIndex > 0 ? sortedMessages[cutoffIndex - 1]?.id ?? null : null
 
   // Add summary boundary IDs (only if they're before the cutoff)
   for (const summary of summaries) {
     if (!recencyCutoffId || summary.endId <= recencyCutoffId) {
-      ids.add(summary.startId);
-      ids.add(summary.endId);
+      ids.add(summary.startId)
+      ids.add(summary.endId)
     }
   }
 
   // Add message IDs (only those before the cutoff)
   for (let i = 0; i < cutoffIndex; i++) {
-    ids.add(sortedMessages[i].id);
+    ids.add(sortedMessages[i].id)
   }
 
-  return { validIds: ids, recencyCutoffId };
+  return { validIds: ids, recencyCutoffId }
 }
 
 /**
@@ -432,83 +210,83 @@ export async function runCompaction(
     tokensAfter: 0,
     turnsUsed: 0,
     usage: { inputTokens: 0, outputTokens: 0 },
-  };
+  }
 
   // Get initial token count (effective view = what actually goes to agent)
-  result.tokensBefore = await getEffectiveViewTokens(storage.temporal);
+  result.tokensBefore = await getEffectiveViewTokens(storage.temporal)
 
   if (result.tokensBefore <= config.compactionTarget && !config.force) {
     log.info("skipping compaction - already under target", {
       current: result.tokensBefore,
       target: config.compactionTarget,
-    });
-    result.tokensAfter = result.tokensBefore;
-    return result;
+    })
+    result.tokensAfter = result.tokensBefore
+    return result
   }
 
   log.info("starting distillation", {
     tokensBefore: result.tokensBefore,
     target: config.compactionTarget,
-  });
+  })
 
   // Build agent context (shared with all workloads)
   // Note: we only use systemPrompt here; history is rebuilt each turn
-  const ctx = await buildAgentContext(storage);
+  const ctx = await buildAgentContext(storage)
 
   // Get model (use reasoning tier for better distillation decisions)
-  const model = Provider.getModelForTier("reasoning");
+  const model = Provider.getModelForTier("reasoning")
 
   // Outer loop: agent controls when to stop via finish_distillation
   // We just enforce max turns as a safety limit
   for (let turn = 0; turn < MAX_COMPACTION_TURNS; turn++) {
-    result.turnsUsed++;
+    result.turnsUsed++
 
     // Get current effective view size for the prompt
-    const currentTokens = await getEffectiveViewTokens(storage.temporal);
+    const currentTokens = await getEffectiveViewTokens(storage.temporal)
 
     // Rebuild conversation history (it now includes IDs in messages/summaries)
     // This must be refreshed each turn since summaries may have been created
-    const refreshedHistoryTurns = await buildConversationHistory(storage);
+    const refreshedHistoryTurns = await buildConversationHistory(storage)
 
     // Get all messages and summaries to know which IDs are valid
-    const allMessages = await storage.temporal.getMessages();
-    const allSummaries = await storage.temporal.getSummaries();
+    const allMessages = await storage.temporal.getMessages()
+    const allSummaries = await storage.temporal.getSummaries()
 
     // Get recency buffer from config - these messages are protected from summarization
-    const appConfig = Config.get();
-    const recencyBuffer = appConfig.tokenBudgets.recencyBufferMessages;
+    const appConfig = Config.get()
+    const recencyBuffer = appConfig.tokenBudgets.recencyBufferMessages
     const { validIds, recencyCutoffId } = collectValidIds(
       allMessages,
       allSummaries,
       recencyBuffer,
-    );
+    )
 
     log.debug("compaction valid IDs", {
       totalMessages: allMessages.length,
       validIds: validIds.size,
       recencyBuffer,
       recencyCutoffId,
-    });
+    })
 
     // Build tools with execute callbacks (must rebuild each turn as validIds changes)
-    const { tools, getLastResult } = buildCompactionTools(
+    const { tools, getLastResult } = buildDistillationTools({
       storage,
       validIds,
-      config.compactionTarget,
-    );
+      targetTokens: config.compactionTarget,
+    })
 
     // Build task prompt (IDs are already visible in the conversation)
     const taskPrompt = buildCompactionTaskPrompt(
       currentTokens,
       config.compactionTarget,
       recencyBuffer,
-    );
+    )
 
     // Agent messages: refreshed history + compaction task
     const initialMessages: CoreMessage[] = [
       ...refreshedHistoryTurns,
       { role: "user", content: `[SYSTEM: ${taskPrompt}]` },
-    ];
+    ]
 
     // Run the inner agent loop using the generic loop abstraction
     const loopResult = await runAgentLoop({
@@ -522,19 +300,19 @@ export async function runCompaction(
       isDone: stopOnTool("finish_distillation"),
       onToolResult: (toolCallId, toolName) => {
         // Track distillations created using our result tracking map
-        const toolResult = getLastResult(toolCallId);
+        const toolResult = getLastResult(toolCallId)
         if (toolResult?.distillationCreated) {
-          result.distillationsCreated++;
+          result.distillationsCreated++
         }
       },
-    });
+    })
 
-    result.usage.inputTokens += loopResult.usage.inputTokens;
-    result.usage.outputTokens += loopResult.usage.outputTokens;
+    result.usage.inputTokens += loopResult.usage.inputTokens
+    result.usage.outputTokens += loopResult.usage.outputTokens
 
     // Check if agent called finish_distillation (inner loop ended via isDone)
     if (loopResult.stopReason === "done") {
-      break;
+      break
     }
 
     // Check if no tool calls were made (agent confused)
@@ -544,22 +322,22 @@ export async function runCompaction(
     ) {
       log.warn("distillation agent made no tool calls", {
         text: loopResult.finalText?.slice(0, 200),
-      });
-      break; // Don't keep looping if agent is confused
+      })
+      break // Don't keep looping if agent is confused
     }
   }
 
   // Get final effective view size
-  result.tokensAfter = await getEffectiveViewTokens(storage.temporal);
+  result.tokensAfter = await getEffectiveViewTokens(storage.temporal)
 
   log.info("distillation complete", {
     distillationsCreated: result.distillationsCreated,
     tokensBefore: result.tokensBefore,
     tokensAfter: result.tokensAfter,
     turnsUsed: result.turnsUsed,
-  });
+  })
 
-  return result;
+  return result
 }
 
 /**
@@ -570,7 +348,7 @@ export async function runCompactionWorker(
   config: CompactionConfig,
 ): Promise<CompactionResult> {
   // Create worker record
-  const workerId = Identifier.ascending("worker");
+  const workerId = Identifier.ascending("worker")
   await storage.workers.create({
     id: workerId,
     type: "temporal-compact",
@@ -578,15 +356,15 @@ export async function runCompactionWorker(
     startedAt: new Date().toISOString(),
     completedAt: null,
     error: null,
-  });
+  })
 
   try {
-    const result = await runCompaction(storage, config);
-    await storage.workers.complete(workerId);
-    return result;
+    const result = await runCompaction(storage, config)
+    await storage.workers.complete(workerId)
+    return result
   } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    await storage.workers.fail(workerId, error);
-    throw e;
+    const error = e instanceof Error ? e.message : String(e)
+    await storage.workers.fail(workerId, error)
+    throw e
   }
 }
