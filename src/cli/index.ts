@@ -12,6 +12,7 @@ import { runBatch } from "./batch"
 import { runInspect, runDump } from "./inspect"
 import { runServer } from "../jsonrpc"
 import { runRepl } from "./repl"
+import { runProtocolRepl } from "./repl-protocol"
 
 interface CliOptions {
   prompt: string | undefined
@@ -23,6 +24,7 @@ interface CliOptions {
   dump: boolean
   stdio: boolean
   repl: boolean
+  replProtocol: boolean
 }
 
 function parseCliArgs(): CliOptions {
@@ -37,6 +39,7 @@ function parseCliArgs(): CliOptions {
       dump: { type: "boolean", default: false },
       stdio: { type: "boolean", default: false },
       repl: { type: "boolean", default: false },
+      "repl-protocol": { type: "boolean", default: false },
     },
     allowPositionals: false,
   })
@@ -51,6 +54,7 @@ function parseCliArgs(): CliOptions {
     dump: values.dump ?? false,
     stdio: values.stdio ?? false,
     repl: values.repl ?? false,
+    replProtocol: values["repl-protocol"] ?? false,
   }
 }
 
@@ -62,7 +66,8 @@ Usage:
   miriad-code -p "prompt"           Run agent with a prompt
   miriad-code -p "prompt" --verbose Show debug output
   miriad-code --repl                Start interactive REPL mode
-  miriad-code --stdio               Start JSON-RPC mode over stdin/stdout
+  miriad-code --repl-protocol       Start REPL using protocol server (for testing)
+  miriad-code --stdio               Start protocol server over stdin/stdout
   miriad-code --inspect             Show memory stats (no LLM call)
   miriad-code --dump                Show raw system prompt (no LLM call)
   miriad-code --help                Show this help
@@ -71,7 +76,8 @@ Options:
   -p, --prompt <text>   The prompt to send to the agent
   -v, --verbose         Show memory state, token usage, and execution trace
       --repl            Start interactive REPL with readline support
-      --stdio           Start JSON-RPC listener on stdin/stdout
+      --repl-protocol   Start REPL that uses protocol server (test mid-turn messages)
+      --stdio           Start Claude Code SDK protocol server on stdin/stdout
       --inspect         Show memory statistics: temporal, present, LTM
       --dump            Dump the full system prompt that would be sent to LLM
       --db <path>       SQLite database path (default: ./agent.db)
@@ -124,6 +130,22 @@ async function main(): Promise<void> {
     try {
       await runRepl({ dbPath: options.db })
       // runRepl keeps running until user quits
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error(`Error: ${error.message}`)
+      } else {
+        console.error("Unknown error:", error)
+      }
+      process.exit(1)
+    }
+    return
+  }
+
+  // Handle --repl-protocol (protocol testing mode)
+  if (options.replProtocol) {
+    try {
+      await runProtocolRepl({ dbPath: options.db })
+      // runProtocolRepl keeps running until user quits
     } catch (error) {
       if (error instanceof Error) {
         console.error(`Error: ${error.message}`)
