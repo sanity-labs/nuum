@@ -13,6 +13,7 @@ import { runInspect, runDump } from "./inspect"
 import { runServer } from "../jsonrpc"
 import { runRepl } from "./repl"
 import { runProtocolRepl } from "./repl-protocol"
+import { VERSION_STRING } from "../version"
 
 interface CliOptions {
   prompt: string | undefined
@@ -20,6 +21,7 @@ interface CliOptions {
   db: string
   format: "text" | "json"
   help: boolean
+  version: boolean
   inspect: boolean
   dump: boolean
   stdio: boolean
@@ -35,6 +37,7 @@ function parseCliArgs(): CliOptions {
       db: { type: "string", default: "./agent.db" },
       format: { type: "string", default: "text" },
       help: { type: "boolean", short: "h", default: false },
+      version: { type: "boolean", short: "V", default: false },
       inspect: { type: "boolean", default: false },
       dump: { type: "boolean", default: false },
       stdio: { type: "boolean", default: false },
@@ -50,6 +53,7 @@ function parseCliArgs(): CliOptions {
     db: values.db ?? "./agent.db",
     format: (values.format as "text" | "json") ?? "text",
     help: values.help ?? false,
+    version: values.version ?? false,
     inspect: values.inspect ?? false,
     dump: values.dump ?? false,
     stdio: values.stdio ?? false,
@@ -60,7 +64,9 @@ function parseCliArgs(): CliOptions {
 
 function printHelp(): void {
   console.log(`
-miriad-code - A coding agent with persistent memory
+${VERSION_STRING}
+
+A coding agent with persistent memory
 
 Usage:
   miriad-code -p "prompt"           Run agent with a prompt
@@ -83,6 +89,7 @@ Options:
       --db <path>       SQLite database path (default: ./agent.db)
       --format <type>   Output format: text or json (default: text)
   -h, --help            Show this help message
+  -V, --version         Show version information
 
 REPL Mode (--repl):
   Interactive mode with readline, history, and streaming output.
@@ -122,6 +129,11 @@ async function main(): Promise<void> {
 
   if (options.help) {
     printHelp()
+    process.exit(0)
+  }
+
+  if (options.version) {
+    console.log(VERSION_STRING)
     process.exit(0)
   }
 

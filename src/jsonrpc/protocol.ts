@@ -47,7 +47,7 @@ export const UserMessageSchema = z.object({
 
 export const ControlRequestSchema = z.object({
   type: z.literal("control"),
-  action: z.enum(["interrupt", "status"]),
+  action: z.enum(["interrupt", "status", "heartbeat"]),
 })
 
 export type UserMessage = z.infer<typeof UserMessageSchema>
@@ -108,6 +108,7 @@ export interface AssistantMessage {
     content: ContentBlock[]
     model: string
   }
+  session_id?: string
 }
 
 export interface ResultMessage {
@@ -127,6 +128,7 @@ export interface ResultMessage {
 export interface SystemMessage {
   type: "system"
   subtype: string
+  session_id?: string
   [key: string]: unknown
 }
 
@@ -136,17 +138,19 @@ export type OutputMessage = AssistantMessage | ResultMessage | SystemMessage
 // Message Builders
 // =============================================================================
 
-export function assistantText(text: string, model: string): AssistantMessage {
+export function assistantText(text: string, model: string, sessionId?: string): AssistantMessage {
   return {
     type: "assistant",
     message: { role: "assistant", content: [{ type: "text", text }], model },
+    session_id: sessionId,
   }
 }
 
-export function assistantToolUse(id: string, name: string, input: unknown, model: string): AssistantMessage {
+export function assistantToolUse(id: string, name: string, input: unknown, model: string, sessionId?: string): AssistantMessage {
   return {
     type: "assistant",
     message: { role: "assistant", content: [{ type: "tool_use", id, name, input }], model },
+    session_id: sessionId,
   }
 }
 

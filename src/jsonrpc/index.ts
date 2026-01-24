@@ -25,6 +25,8 @@ import {
 } from "./protocol"
 import { Log } from "../util/log"
 import { Config } from "../config"
+import { Mcp } from "../mcp"
+import { Identifier } from "../id"
 
 // Get the model ID for the reasoning tier (main agent)
 function getModelId(): string {
@@ -51,13 +53,23 @@ export class Server {
   private messageQueue: UserMessage[] = []
   private rl: readline.Interface | null = null
   private processing = false
+  private sessionId: string
 
   constructor(private options: ServerOptions) {
     this.storage = createStorage(options.dbPath)
+    this.sessionId = Identifier.ascending("session")
   }
 
   async start(): Promise<void> {
     await initializeDefaultEntries(this.storage)
+
+    // Initialize MCP servers
+    await Mcp.initialize()
+    const mcpTools = Mcp.getToolNames()
+
+    // Setup SIGTERM handler for graceful shutdown
+    process.on("SIGTERM", () => this.shutdown("SIGTERM"))
+    process.on("SIGINT", () => this.shutdown("SIGINT"))
 
     this.rl = readline.createInterface({
       input: process.stdin,
@@ -73,10 +85,17 @@ export class Server {
 
     this.rl.on("close", () => {
       log.info("stdin closed, shutting down")
-      process.exit(0)
+      this.shutdown("stdin closed")
     })
 
     log.info("server started", { dbPath: this.options.dbPath })
+
+    // Emit init message (matches Claude SDK format)
+    this.send(systemMessage("init", {
+      session_id: this.sessionId,
+      model: getModelId(),
+      tools: mcpTools,
+    }))
   }
 
   private async handleLine(line: string): Promise<void> {
@@ -114,12 +133,41 @@ export class Server {
         this.send(
           systemMessage("status", {
             running: this.currentTurn !== null,
-            session_id: this.currentTurn?.sessionId,
+            session_id: this.currentTurn?.sessionId ?? this.sessionId,
             queued_messages: this.messageQueue.length,
           }),
         )
         break
+
+      case "heartbeat":
+        this.send(
+          systemMessage("heartbeat_ack", {
+            timestamp: new Date().toISOString(),
+            session_id: this.sessionId,
+          }),
+        )
+        break
     }
+  }
+
+  /**
+   * Graceful shutdown - close storage and exit.
+   */
+  private async shutdown(reason: string): Promise<void> {
+    log.info("shutting down", { reason })
+    
+    // Cancel any running turn
+    if (this.currentTurn) {
+      this.currentTurn.abortController.abort()
+    }
+
+    // Close MCP connections
+    await Mcp.shutdown()
+
+    // Close readline
+    this.rl?.close()
+
+    process.exit(0)
   }
 
   private async handleUserMessage(userMessage: UserMessage): Promise<void> {
@@ -248,6 +296,7 @@ export class Server {
     this.send(systemMessage("injected", { 
       message_count: messages.length,
       content_length: combined.length,
+      session_id: this.currentTurn?.sessionId ?? this.sessionId,
     }))
 
     return combined
@@ -255,28 +304,31 @@ export class Server {
 
   private handleAgentEvent(event: AgentEvent): void {
     if (!this.currentTurn) return
-    const { model } = this.currentTurn
+    const { model, sessionId } = this.currentTurn
 
     switch (event.type) {
       case "assistant":
-        this.send(assistantText(event.content, model))
+        this.send(assistantText(event.content, model, sessionId))
         break
 
       case "tool_call":
         if (event.toolName && event.toolCallId) {
-          this.send(assistantToolUse(event.toolCallId, event.toolName, event.toolArgs ?? {}, model))
+          this.send(assistantToolUse(event.toolCallId, event.toolName, event.toolArgs ?? {}, model, sessionId))
         }
         break
 
       case "tool_result":
         if (event.toolCallId) {
           this.currentTurn.numTurns++
-          this.send(systemMessage("tool_result", { tool_result: toolResult(event.toolCallId, event.content) }))
+          this.send(systemMessage("tool_result", { 
+            tool_result: toolResult(event.toolCallId, event.content),
+            session_id: sessionId,
+          }))
         }
         break
 
       case "error":
-        this.send(systemMessage("error", { message: event.content }))
+        this.send(systemMessage("error", { message: event.content, session_id: sessionId }))
         break
 
       case "consolidation":
@@ -287,6 +339,7 @@ export class Server {
               entries_updated: event.consolidationResult.entriesUpdated,
               entries_archived: event.consolidationResult.entriesArchived,
               summary: event.consolidationResult.summary,
+              session_id: sessionId,
             }),
           )
         }

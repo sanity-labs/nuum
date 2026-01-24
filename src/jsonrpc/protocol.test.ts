@@ -72,6 +72,15 @@ describe("parseInputMessage", () => {
         expect(result.message.action).toBe("status")
       }
     })
+
+    test("parses heartbeat control request", () => {
+      const line = '{"type":"control","action":"heartbeat"}'
+      const result = parseInputMessage(line)
+      expect("message" in result).toBe(true)
+      if ("message" in result && isControlRequest(result.message)) {
+        expect(result.message.action).toBe("heartbeat")
+      }
+    })
   })
 
   describe("error cases", () => {
