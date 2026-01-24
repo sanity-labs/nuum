@@ -35,6 +35,7 @@ import { Config } from "../config"
 import { buildAgentContext, buildConversationHistory } from "../context"
 import { runAgentLoop, stopOnTool } from "../agent/loop"
 import { estimateSummaryTokens, type SummaryInput } from "./summary"
+import { getEffectiveViewTokens } from "./compaction"
 
 const log = Log.create({ service: "compaction-agent" })
 
@@ -328,8 +329,8 @@ export async function runCompaction(
     usage: { inputTokens: 0, outputTokens: 0 },
   }
 
-  // Get initial token count
-  result.tokensBefore = await storage.temporal.estimateUncompactedTokens()
+  // Get initial token count (effective view = what actually goes to agent)
+  result.tokensBefore = await getEffectiveViewTokens(storage.temporal)
 
   if (result.tokensBefore <= config.compactionTarget) {
     log.info("skipping compaction - already under target", {
@@ -356,8 +357,8 @@ export async function runCompaction(
   for (let turn = 0; turn < MAX_COMPACTION_TURNS; turn++) {
     result.turnsUsed++
 
-    // Check current token count
-    const currentTokens = await storage.temporal.estimateUncompactedTokens()
+    // Check current effective view size
+    const currentTokens = await getEffectiveViewTokens(storage.temporal)
 
     if (currentTokens <= config.compactionTarget) {
       log.info("compaction target reached", {
@@ -433,8 +434,8 @@ export async function runCompaction(
     }
   }
 
-  // Get final token count
-  result.tokensAfter = await storage.temporal.estimateUncompactedTokens()
+  // Get final effective view size
+  result.tokensAfter = await getEffectiveViewTokens(storage.temporal)
 
   log.info("distillation complete", {
     distillationsCreated: result.summariesCreated,

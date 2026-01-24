@@ -9,7 +9,7 @@
 
 import { parseArgs } from "util"
 import { runBatch } from "./batch"
-import { runInspect, runDump } from "./inspect"
+import { runInspect, runDump, runCompact } from "./inspect"
 import { runServer } from "../jsonrpc"
 import { runRepl } from "./repl"
 import { runProtocolRepl } from "./repl-protocol"
@@ -24,6 +24,7 @@ interface CliOptions {
   version: boolean
   inspect: boolean
   dump: boolean
+  compact: boolean
   stdio: boolean
   repl: boolean
   replProtocol: boolean
@@ -40,6 +41,7 @@ function parseCliArgs(): CliOptions {
       version: { type: "boolean", short: "V", default: false },
       inspect: { type: "boolean", default: false },
       dump: { type: "boolean", default: false },
+      compact: { type: "boolean", default: false },
       stdio: { type: "boolean", default: false },
       repl: { type: "boolean", default: false },
       "repl-protocol": { type: "boolean", default: false },
@@ -56,6 +58,7 @@ function parseCliArgs(): CliOptions {
     version: values.version ?? false,
     inspect: values.inspect ?? false,
     dump: values.dump ?? false,
+    compact: values.compact ?? false,
     stdio: values.stdio ?? false,
     repl: values.repl ?? false,
     replProtocol: values["repl-protocol"] ?? false,
@@ -76,6 +79,7 @@ Usage:
   miriad-code --stdio               Start protocol server over stdin/stdout
   miriad-code --inspect             Show memory stats (no LLM call)
   miriad-code --dump                Show raw system prompt (no LLM call)
+  miriad-code --compact             Force run compaction (distillation)
   miriad-code --help                Show this help
 
 Options:
@@ -86,6 +90,7 @@ Options:
       --stdio           Start Claude Code SDK protocol server on stdin/stdout
       --inspect         Show memory statistics: temporal, present, LTM
       --dump            Dump the full system prompt that would be sent to LLM
+      --compact         Force run compaction to reduce effective view size
       --db <path>       SQLite database path (default: ./agent.db)
       --format <type>   Output format: text or json (default: text)
   -h, --help            Show this help message
@@ -204,6 +209,21 @@ async function main(): Promise<void> {
   if (options.dump) {
     try {
       await runDump(options.db)
+      process.exit(0)
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error(`Error: ${error.message}`)
+      } else {
+        console.error("Unknown error:", error)
+      }
+      process.exit(1)
+    }
+  }
+
+  // Handle --compact (force compaction)
+  if (options.compact) {
+    try {
+      await runCompact(options.db)
       process.exit(0)
     } catch (error) {
       if (error instanceof Error) {

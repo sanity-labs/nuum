@@ -32,6 +32,7 @@ export {
   getCompactionState,
   calculateCompactionTarget,
   getMessagesToCompact,
+  getEffectiveViewTokens,
   shouldCreateOrder2Summary,
   shouldCreateHigherOrderSummary,
   COMPRESSION_TARGETS,

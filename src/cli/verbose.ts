@@ -25,10 +25,10 @@ export interface MemoryStats {
   totalMessages: number
   totalSummaries: number
   summariesByOrder: SummaryOrderStats[]
-  uncompactedTokens: number
-  totalMessageTokens: number  // Raw token count of all messages
-  totalSummaryTokens: number  // Total tokens in summaries
-  temporalBudget: number
+  effectiveViewTokens: number  // Tokens in effective view (what goes to agent)
+  totalMessageTokens: number   // Raw token count of all messages
+  totalSummaryTokens: number   // Total tokens in summaries
+  compactionThreshold: number
   ltmEntries: number
   identityTokens: number
   behaviorTokens: number
@@ -107,13 +107,8 @@ export class VerboseOutput {
       this.log(`  Summaries: ${stats.totalSummaries}`)
     }
 
-    this.log(`  Uncompacted: ${stats.uncompactedTokens.toLocaleString()} tokens (threshold: ${stats.temporalBudget.toLocaleString()})`)
-
-    // Show compression ratio if there are summaries
-    if (stats.totalSummaryTokens > 0 && stats.totalMessageTokens > 0) {
-      const ratio = stats.totalMessageTokens / stats.totalSummaryTokens
-      this.log(`  Compression ratio: ${ratio.toFixed(1)}x`)
-    }
+    const needsCompaction = stats.effectiveViewTokens > stats.compactionThreshold
+    this.log(`  Effective view: ${stats.effectiveViewTokens.toLocaleString()} / ${stats.compactionThreshold.toLocaleString()} tokens${needsCompaction ? " (compaction needed)" : ""}`)
 
     this.log(`\nLTM:`)
     this.log(`  Entries: ${stats.ltmEntries}`)
@@ -194,13 +189,8 @@ export class VerboseOutput {
       this.log(`  Summaries: ${stats.totalSummaries}`)
     }
 
-    this.log(`  Uncompacted: ${stats.uncompactedTokens.toLocaleString()} tokens`)
-
-    // Show compression ratio if there are summaries
-    if (stats.totalSummaryTokens > 0 && stats.totalMessageTokens > 0) {
-      const ratio = stats.totalMessageTokens / stats.totalSummaryTokens
-      this.log(`  Compression ratio: ${ratio.toFixed(1)}x`)
-    }
+    const needsCompaction = stats.effectiveViewTokens > stats.compactionThreshold
+    this.log(`  Effective view: ${stats.effectiveViewTokens.toLocaleString()} / ${stats.compactionThreshold.toLocaleString()} tokens${needsCompaction ? " (compaction needed)" : ""}`)
 
     // Calculate cost estimate (Claude Opus 4.5 pricing: $15/$75 per 1M tokens)
     const inputCost = (usage.inputTokens / 1_000_000) * 15

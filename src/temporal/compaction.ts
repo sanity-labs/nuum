@@ -2,14 +2,16 @@
  * Compaction trigger and scheduling logic.
  *
  * Determines when compaction should run and manages the compaction workflow.
- * Designed for async compatibility even though Phase 2 runs synchronously.
+ * Compaction is triggered based on the effective view size - the actual tokens
+ * that would be sent to the agent (summaries + uncovered messages).
  */
 
 import type { TemporalStorage } from "../storage"
 import type { WorkerStorage } from "../storage"
+import { buildTemporalView } from "./view"
 
 export interface CompactionConfig {
-  /** Trigger compaction when uncompacted tokens exceed this threshold */
+  /** Trigger compaction when effective view exceeds this threshold */
   compactionThreshold: number
   /** Target token count after compaction completes */
   compactionTarget: number
@@ -25,7 +27,7 @@ export interface CompactionState {
 /**
  * Check if compaction should be triggered.
  *
- * @returns true if uncompacted tokens exceed threshold and no compaction is running
+ * @returns true if effective view tokens exceed threshold and no compaction is running
  */
 export async function shouldTriggerCompaction(
   temporal: TemporalStorage,
@@ -39,9 +41,19 @@ export async function shouldTriggerCompaction(
     return false // Don't double-trigger
   }
 
-  // Check if we exceed the threshold
-  const uncompactedTokens = await temporal.estimateUncompactedTokens()
-  return uncompactedTokens > config.compactionThreshold
+  // Check if effective view exceeds threshold
+  const viewTokens = await getEffectiveViewTokens(temporal)
+  return viewTokens > config.compactionThreshold
+}
+
+/**
+ * Get the token count of the effective view (what actually goes to the agent).
+ */
+export async function getEffectiveViewTokens(temporal: TemporalStorage): Promise<number> {
+  const messages = await temporal.getMessages()
+  const summaries = await temporal.getSummaries()
+  const view = buildTemporalView({ budget: 0, messages, summaries })
+  return view.totalTokens
 }
 
 /**
@@ -67,8 +79,8 @@ export async function calculateCompactionTarget(
   temporal: TemporalStorage,
   config: CompactionConfig,
 ): Promise<number> {
-  const uncompactedTokens = await temporal.estimateUncompactedTokens()
-  const tokensToCompress = uncompactedTokens - config.compactionTarget
+  const viewTokens = await getEffectiveViewTokens(temporal)
+  const tokensToCompress = viewTokens - config.compactionTarget
   return Math.max(0, tokensToCompress)
 }
 

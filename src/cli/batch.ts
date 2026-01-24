@@ -9,6 +9,7 @@ import { createStorage, initializeDefaultEntries, type Storage } from "../storag
 import { runAgent, type AgentEvent } from "../agent"
 import { VerboseOutput, type MemoryStats, type TokenBudget, type SummaryOrderStats } from "./verbose"
 import { buildTemporalView } from "../temporal"
+import { getEffectiveViewTokens } from "../memory"
 import { Config } from "../config"
 
 export interface BatchOptions {
@@ -31,7 +32,7 @@ function estimateTokens(text: string): number {
 async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   const messages = await storage.temporal.getMessages()
   const summaries = await storage.temporal.getSummaries()
-  const uncompactedTokens = await storage.temporal.estimateUncompactedTokens()
+  const effectiveViewTokens = await getEffectiveViewTokens(storage.temporal)
   const config = Config.get()
 
   // Get LTM stats
@@ -82,10 +83,10 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
     totalMessages: messages.length,
     totalSummaries: summaries.length,
     summariesByOrder,
-    uncompactedTokens,
+    effectiveViewTokens,
     totalMessageTokens,
     totalSummaryTokens,
-    temporalBudget: config.tokenBudgets.compactionThreshold,
+    compactionThreshold: config.tokenBudgets.compactionThreshold,
     ltmEntries: ltmEntries.length,
     identityTokens: identity ? estimateTokens(identity.body) : 0,
     behaviorTokens: behavior ? estimateTokens(behavior.body) : 0,

@@ -34,15 +34,9 @@ import {
   LTMReadTool,
   type LTMToolContext,
 } from "../tool"
-import {
-  shouldTriggerCompaction,
-  runCompactionWorker,
-  getMessagesToCompact,
-  type CompactionResult,
-} from "../temporal"
-import { runConsolidationWorker, type ConsolidationResult } from "../ltm"
 import { runAgentLoop, AgentLoopCancelledError } from "./loop"
 import { buildAgentContext } from "../context"
+import { runMemoryCuration, type MemoryCurationResult } from "../memory"
 import { Log } from "../util/log"
 import { activity } from "../util/activity-log"
 import { Mcp } from "../mcp"
@@ -108,13 +102,6 @@ function summarizeToolResult(toolName: string, result: string): string {
       return result.length > 60 ? result.slice(0, 57) + "..." : result
   }
 }
-
-/**
- * Flag to prevent concurrent compaction runs.
- * Compaction runs asynchronously in the background, so we need to
- * ensure only one compaction is running at a time.
- */
-let compactionInProgress = false
 
 /**
  * Estimate token count from text (rough approximation).
@@ -406,14 +393,6 @@ export async function initializeMcp(): Promise<boolean> {
 export async function shutdownMcp(): Promise<void> {
   await Mcp.shutdown()
 }
-
-/**
- * Check if compaction is currently running in the background.
- */
-export function isCompactionInProgress(): boolean {
-  return compactionInProgress
-}
-
 /**
  * Run the main agent loop.
  */
@@ -593,10 +572,28 @@ export async function runAgent(
 
   onEvent?.({ type: "done", content: result.finalText })
 
-  // Check if compaction is needed after the agent turn
-  // Fire-and-forget: don't block the main agent while compaction runs
-  maybeRunCompaction(storage, onEvent).catch((error) => {
-    log.error("background compaction failed", { error: error instanceof Error ? error.message : String(error) })
+  // Run memory curation in background (LTM consolidation + distillation)
+  // Fire-and-forget: don't block the main agent
+  runMemoryCuration(storage).then((curationResult) => {
+    if (curationResult.ran) {
+      if (curationResult.consolidation?.ran) {
+        onEvent?.({
+          type: "consolidation",
+          content: curationResult.consolidation.summary || "LTM consolidation complete",
+          consolidationResult: curationResult.consolidation,
+        })
+      }
+      if (curationResult.distillation) {
+        const d = curationResult.distillation
+        onEvent?.({
+          type: "compaction",
+          content: `Distilled ${d.tokensBefore - d.tokensAfter} tokens (${d.summariesCreated} distillations)`,
+          compactionResult: d,
+        })
+      }
+    }
+  }).catch((error) => {
+    log.error("background memory curation failed", { error: error instanceof Error ? error.message : String(error) })
   })
 
   return {
@@ -605,115 +602,5 @@ export async function runAgent(
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
     },
-  }
-}
-
-/**
- * Check if compaction should be triggered and run it if needed.
- * Runs LTM consolidation BEFORE compaction to extract durable knowledge
- * while raw messages are still available.
- * 
- * This runs asynchronously in the background - the main agent doesn't wait.
- * Only one compaction can run at a time.
- */
-async function maybeRunCompaction(
-  storage: Storage,
-  onEvent?: (event: AgentEvent) => void,
-): Promise<CompactionResult | null> {
-  // Skip if compaction is already running
-  if (compactionInProgress) {
-    return null
-  }
-
-  const config = Config.get()
-
-  const shouldCompact = await shouldTriggerCompaction(
-    storage.temporal,
-    storage.workers,
-    {
-      compactionThreshold: config.tokenBudgets.compactionThreshold,
-      compactionTarget: config.tokenBudgets.compactionTarget,
-    },
-  )
-
-  if (!shouldCompact) {
-    return null
-  }
-
-  // Set flag before starting compaction
-  compactionInProgress = true
-
-  // Phase 1: Run LTM consolidation BEFORE compaction
-  // Extract durable knowledge from raw messages while they're still available
-  try {
-    const { messages } = await getMessagesToCompact(storage.temporal)
-    if (messages.length > 0) {
-      activity.ltmCurator.start("Knowledge curation", { messages: messages.length })
-
-      const consolidationResult = await runConsolidationWorker(storage, messages)
-
-      if (consolidationResult.ran) {
-        const changes = consolidationResult.entriesCreated + consolidationResult.entriesUpdated + consolidationResult.entriesArchived
-        if (changes > 0) {
-          activity.ltmCurator.complete(
-            `${consolidationResult.entriesCreated} created, ${consolidationResult.entriesUpdated} updated, ${consolidationResult.entriesArchived} archived`
-          )
-        } else {
-          activity.ltmCurator.complete("No changes needed")
-        }
-
-        onEvent?.({
-          type: "consolidation",
-          content: consolidationResult.summary || "LTM consolidation complete",
-          consolidationResult,
-        })
-      } else {
-        activity.ltmCurator.skip(consolidationResult.summary)
-      }
-    }
-  } catch (error) {
-    // Consolidation failure is non-fatal - continue with compaction
-    activity.ltmCurator.error(error instanceof Error ? error.message : String(error))
-    onEvent?.({
-      type: "error",
-      content: `Consolidation failed: ${error instanceof Error ? error.message : String(error)}`,
-    })
-  }
-
-  // Phase 2: Run compaction (working memory distillation)
-  try {
-    const tokensBefore = await storage.temporal.estimateUncompactedTokens()
-    activity.distillation.start("Working memory optimization", { 
-      tokens: tokensBefore,
-      target: config.tokenBudgets.compactionTarget 
-    })
-
-    const result = await runCompactionWorker(
-      storage,
-      {
-        compactionThreshold: config.tokenBudgets.compactionThreshold,
-        compactionTarget: config.tokenBudgets.compactionTarget,
-      },
-    )
-
-    activity.distillation.tokens(result.tokensBefore, result.tokensAfter, `${result.summariesCreated} distillations`)
-
-    onEvent?.({
-      type: "compaction",
-      content: `Distilled ${result.tokensBefore - result.tokensAfter} tokens (${result.summariesCreated} distillations in ${result.turnsUsed} turns)`,
-      compactionResult: result,
-    })
-
-    return result
-  } catch (error) {
-    activity.distillation.error(error instanceof Error ? error.message : String(error))
-    onEvent?.({
-      type: "error",
-      content: `Distillation failed: ${error instanceof Error ? error.message : String(error)}`,
-    })
-    return null
-  } finally {
-    // Always clear the flag when done
-    compactionInProgress = false
   }
 }

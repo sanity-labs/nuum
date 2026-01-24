@@ -3,12 +3,15 @@
  *
  * --inspect: Shows LTM tree structure + memory stats
  * --dump: Shows the system prompt + conversation turns as they would appear to the agent
+ * --compact: Force run compaction to reduce effective view size
  *
- * Both commands work without API key (no LLM calls).
+ * --inspect and --dump work without API key (no LLM calls).
+ * --compact requires API key (runs the compaction agent).
  */
 
 import { createStorage, initializeDefaultEntries, type Storage } from "../storage"
 import { buildTemporalView, reconstructHistoryAsTurns } from "../temporal"
+import { runMemoryCuration, getEffectiveViewTokens } from "../memory"
 import { buildAgentContext } from "../context"
 import { Config } from "../config"
 import type { CoreMessage } from "ai"
@@ -115,23 +118,20 @@ interface SummaryOrderStats {
 }
 
 interface MemoryStats {
-  // Temporal
+  // Temporal (raw storage)
   totalMessages: number
   totalMessageTokens: number
   totalSummaries: number
   totalSummaryTokens: number
   summariesByOrder: SummaryOrderStats[]
-  uncompactedTokens: number
-  temporalBudget: number
-  compactionThreshold: number
-  compactionTarget: number
-  // View
+  // Effective view (what goes to agent)
   viewSummaryCount: number
   viewSummaryTokens: number
   viewMessageCount: number
   viewMessageTokens: number
   viewTotalTokens: number
-  compressionRatio: number | null
+  compactionThreshold: number
+  compactionTarget: number
   // Present
   mission: string | null
   status: string | null
@@ -152,18 +152,16 @@ interface MemoryStats {
  */
 async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   const config = Config.get()
-  const temporalBudget = config.tokenBudgets.temporalBudget
   const compactionThreshold = config.tokenBudgets.compactionThreshold
   const compactionTarget = config.tokenBudgets.compactionTarget
 
   // Get temporal data
   const messages = await storage.temporal.getMessages()
   const summaries = await storage.temporal.getSummaries()
-  const uncompactedTokens = await storage.temporal.estimateUncompactedTokens()
 
-  // Build temporal view
+  // Build temporal view (the effective context that goes to agents)
   const view = buildTemporalView({
-    budget: temporalBudget,
+    budget: compactionThreshold, // budget is informational
     messages,
     summaries,
   })
@@ -207,28 +205,19 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   const behavior = await storage.ltm.read("behavior")
   const ltmTotalTokens = ltmEntries.reduce((sum, e) => sum + estimateTokens(e.body), 0)
 
-  // Calculate compression ratio
-  let compressionRatio: number | null = null
-  if (totalSummaryTokens > 0 && totalMessageTokens > 0) {
-    compressionRatio = totalMessageTokens / totalSummaryTokens
-  }
-
   return {
     totalMessages: messages.length,
     totalMessageTokens,
     totalSummaries: summaries.length,
     totalSummaryTokens,
     summariesByOrder,
-    uncompactedTokens,
-    temporalBudget,
-    compactionThreshold,
-    compactionTarget,
     viewSummaryCount: view.summaries.length,
     viewSummaryTokens: view.breakdown.summaryTokens,
     viewMessageCount: view.messages.length,
     viewMessageTokens: view.breakdown.messageTokens,
     viewTotalTokens: view.totalTokens,
-    compressionRatio,
+    compactionThreshold,
+    compactionTarget,
     mission: present.mission,
     status: present.status,
     tasksPending,
@@ -287,23 +276,13 @@ export async function runInspect(dbPath: string): Promise<void> {
   }
 
   console.log()
-  console.log(`Compaction:`)
-  console.log(`  Uncompacted: ${fmt(stats.uncompactedTokens)} tokens`)
-  console.log(`  Threshold: ${fmt(stats.compactionThreshold)} tokens`)
-  console.log(`  Target: ${fmt(stats.compactionTarget)} tokens`)
-  const compactionPct = ((stats.uncompactedTokens / stats.compactionThreshold) * 100).toFixed(1)
-  console.log(`  Status: ${compactionPct}% of threshold ${stats.uncompactedTokens >= stats.compactionThreshold ? "(compaction needed)" : ""}`)
-
-  if (stats.compressionRatio !== null) {
-    console.log()
-    console.log(`Compression ratio: ${stats.compressionRatio.toFixed(1)}x`)
-  }
-
-  console.log()
+  const needsCompaction = stats.viewTotalTokens > stats.compactionThreshold
+  const compactionStatus = needsCompaction ? " (compaction needed)" : ""
   console.log(`Effective view (what goes to agent):`)
   console.log(`  Summaries: ${stats.viewSummaryCount} (${fmt(stats.viewSummaryTokens)} tokens)`)
   console.log(`  Messages: ${stats.viewMessageCount} (${fmt(stats.viewMessageTokens)} tokens)`)
-  console.log(`  Total: ${fmt(stats.viewTotalTokens)} / ${fmt(stats.temporalBudget)} budget`)
+  console.log(`  Total: ${fmt(stats.viewTotalTokens)} / ${fmt(stats.compactionThreshold)} threshold${compactionStatus}`)
+  console.log(`  Target: ${fmt(stats.compactionTarget)} tokens`)
 
   console.log()
   console.log(SEPARATOR)
@@ -416,4 +395,62 @@ export async function runDump(dbPath: string): Promise<void> {
   }
 
   console.log()
+}
+
+/**
+ * Run the --compact command.
+ * Forces memory curation (LTM consolidation + distillation).
+ */
+export async function runCompact(dbPath: string): Promise<void> {
+  const storage = createStorage(dbPath)
+  await initializeDefaultEntries(storage)
+
+  const config = Config.get()
+  const threshold = config.tokenBudgets.compactionThreshold
+  const target = config.tokenBudgets.compactionTarget
+
+  // Check current size
+  const tokensBefore = await getEffectiveViewTokens(storage.temporal)
+  console.log(`Effective view: ${fmt(tokensBefore)} tokens`)
+  console.log(`Threshold: ${fmt(threshold)} tokens`)
+  console.log(`Target: ${fmt(target)} tokens`)
+  console.log()
+
+  if (tokensBefore <= target) {
+    console.log(`Already under target - no compaction needed.`)
+    return
+  }
+
+  console.log(`Running memory curation...`)
+  console.log()
+
+  const result = await runMemoryCuration(storage, { force: true })
+
+  if (!result.ran) {
+    console.log(`Curation did not run (already in progress?)`)
+    return
+  }
+
+  // Report consolidation results
+  if (result.consolidation?.ran) {
+    const c = result.consolidation
+    const changes = c.entriesCreated + c.entriesUpdated + c.entriesArchived
+    console.log(`LTM Consolidation:`)
+    if (changes > 0) {
+      console.log(`  ${c.entriesCreated} created, ${c.entriesUpdated} updated, ${c.entriesArchived} archived`)
+    } else {
+      console.log(`  No changes needed`)
+    }
+    console.log()
+  }
+
+  // Report distillation results
+  if (result.distillation) {
+    const d = result.distillation
+    console.log(`Distillation:`)
+    console.log(`  Distillations created: ${d.summariesCreated}`)
+    console.log(`  Tokens: ${fmt(d.tokensBefore)} → ${fmt(d.tokensAfter)}`)
+    console.log(`  Turns used: ${d.turnsUsed}`)
+    console.log(`  LLM usage: ${fmt(d.usage.inputTokens)} input, ${fmt(d.usage.outputTokens)} output`)
+  }
 }

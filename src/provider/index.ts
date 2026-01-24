@@ -45,7 +45,10 @@ export namespace Provider {
       apiKey: getApiKey(),
       headers: {
         // Enable Claude Code beta features
-        "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14",
+        // - claude-code: Claude Code specific features
+        // - interleaved-thinking: Extended thinking with interleaved output
+        // - context-1m: 1M token context window for Sonnet
+        "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14,context-1m-2025-08-07",
       },
     })
   }
