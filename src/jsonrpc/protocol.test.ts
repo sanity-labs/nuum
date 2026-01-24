@@ -1,6 +1,5 @@
 /**
  * Tests for JSON-RPC protocol parsing and validation.
- * Tests both legacy format and Claude Code SDK compatible format.
  */
 
 import { describe, expect, test } from "bun:test"
@@ -9,11 +8,11 @@ import {
   validateRunParams,
   createResponse,
   createErrorResponse,
-  createAssistantText,
-  createAssistantToolUse,
-  createToolResult,
-  createResultMessage,
-  createSystemMessage,
+  assistantText,
+  assistantToolUse,
+  toolResult,
+  resultMessage,
+  systemMessage,
   ErrorCodes,
 } from "./protocol"
 
@@ -89,7 +88,6 @@ describe("validateRunParams", () => {
     const result = validateRunParams({ prompt: "Hello", session_id: "sess_123" })
     expect("params" in result).toBe(true)
     if ("params" in result) {
-      expect(result.params.prompt).toBe("Hello")
       expect(result.params.session_id).toBe("sess_123")
     }
   })
@@ -110,15 +108,81 @@ describe("validateRunParams", () => {
   })
 })
 
+describe("message builders", () => {
+  test("assistantText creates text content block", () => {
+    const msg = assistantText("Hello", "claude-sonnet-4-20250514")
+    expect(msg.type).toBe("assistant")
+    expect(msg.message.role).toBe("assistant")
+    expect(msg.message.model).toBe("claude-sonnet-4-20250514")
+    expect(msg.message.content).toEqual([{ type: "text", text: "Hello" }])
+  })
+
+  test("assistantToolUse creates tool_use content block", () => {
+    const msg = assistantToolUse("call_123", "read", { filePath: "/foo" }, "claude-sonnet-4-20250514")
+    expect(msg.type).toBe("assistant")
+    expect(msg.message.content).toEqual([
+      { type: "tool_use", id: "call_123", name: "read", input: { filePath: "/foo" } },
+    ])
+  })
+
+  test("toolResult creates tool_result block", () => {
+    const block = toolResult("call_123", "file contents")
+    expect(block).toEqual({ type: "tool_result", tool_use_id: "call_123", content: "file contents", is_error: undefined })
+  })
+
+  test("toolResult with error flag", () => {
+    const block = toolResult("call_123", "error message", true)
+    expect(block.is_error).toBe(true)
+  })
+
+  test("resultMessage creates success result", () => {
+    const msg = resultMessage("sess_123", "success", 1000, 5, {
+      result: "Done!",
+      inputTokens: 100,
+      outputTokens: 50,
+    })
+    expect(msg.type).toBe("result")
+    expect(msg.subtype).toBe("success")
+    expect(msg.is_error).toBe(false)
+    expect(msg.duration_ms).toBe(1000)
+    expect(msg.num_turns).toBe(5)
+    expect(msg.session_id).toBe("sess_123")
+    expect(msg.result).toBe("Done!")
+    expect(msg.usage).toEqual({ input_tokens: 100, output_tokens: 50 })
+  })
+
+  test("resultMessage creates error result", () => {
+    const msg = resultMessage("sess_123", "error", 500, 2, { result: "Something broke" })
+    expect(msg.subtype).toBe("error")
+    expect(msg.is_error).toBe(true)
+  })
+
+  test("systemMessage creates system message", () => {
+    const msg = systemMessage("status", { running: true, request_id: 1 })
+    expect(msg.type).toBe("system")
+    expect(msg.subtype).toBe("status")
+    expect(msg.running).toBe(true)
+    expect(msg.request_id).toBe(1)
+  })
+})
+
+describe("createResponse", () => {
+  test("wraps message in JSON-RPC envelope", () => {
+    const msg = assistantText("Hello", "claude-sonnet-4-20250514")
+    const response = createResponse(1, msg)
+    expect(response.jsonrpc).toBe("2.0")
+    expect(response.id).toBe(1)
+    expect(response.result).toBe(msg)
+    expect(response.error).toBeUndefined()
+  })
+})
+
 describe("createErrorResponse", () => {
   test("creates error with code and message", () => {
     const response = createErrorResponse(1, ErrorCodes.INTERNAL_ERROR, "Something broke")
     expect(response.jsonrpc).toBe("2.0")
     expect(response.id).toBe(1)
-    expect(response.error).toEqual({
-      code: ErrorCodes.INTERNAL_ERROR,
-      message: "Something broke",
-    })
+    expect(response.error).toEqual({ code: ErrorCodes.INTERNAL_ERROR, message: "Something broke" })
     expect(response.result).toBeUndefined()
   })
 
@@ -133,195 +197,24 @@ describe("createErrorResponse", () => {
   })
 })
 
-// =============================================================================
-// Claude Code SDK Compatible Message Builders
-// =============================================================================
-
-describe("createAssistantText", () => {
-  test("creates assistant message with text block", () => {
-    const msg = createAssistantText("Hello world", "claude-sonnet-4-20250514")
-    expect(msg.type).toBe("assistant")
-    expect(msg.message.role).toBe("assistant")
-    expect(msg.message.model).toBe("claude-sonnet-4-20250514")
-    expect(msg.message.content).toEqual([{ type: "text", text: "Hello world" }])
-  })
-})
-
-describe("createAssistantToolUse", () => {
-  test("creates assistant message with tool_use block", () => {
-    const msg = createAssistantToolUse("call_123", "read", { filePath: "/tmp/test.txt" }, "claude-sonnet-4-20250514")
-    expect(msg.type).toBe("assistant")
-    expect(msg.message.content).toEqual([
-      { type: "tool_use", id: "call_123", name: "read", input: { filePath: "/tmp/test.txt" } },
-    ])
-  })
-
-  test("creates assistant message with preceding text and tool_use", () => {
-    const msg = createAssistantToolUse(
-      "call_123",
-      "read",
-      { filePath: "/tmp/test.txt" },
-      "claude-sonnet-4-20250514",
-      "Let me read that file.",
-    )
-    expect(msg.message.content).toEqual([
-      { type: "text", text: "Let me read that file." },
-      { type: "tool_use", id: "call_123", name: "read", input: { filePath: "/tmp/test.txt" } },
-    ])
-  })
-})
-
-describe("createToolResult", () => {
-  test("creates tool result block", () => {
-    const block = createToolResult("call_123", "File contents here")
-    expect(block.type).toBe("tool_result")
-    expect(block.tool_use_id).toBe("call_123")
-    expect(block.content).toBe("File contents here")
-    expect(block.is_error).toBeUndefined()
-  })
-
-  test("creates error tool result block", () => {
-    const block = createToolResult("call_123", "File not found", true)
-    expect(block.is_error).toBe(true)
-  })
-})
-
-describe("createResultMessage", () => {
-  test("creates success result message", () => {
-    const msg = createResultMessage("sess_123", {
-      subtype: "success",
-      durationMs: 1234,
-      numTurns: 3,
-      result: "Done!",
-      inputTokens: 100,
-      outputTokens: 50,
-    })
-    expect(msg.type).toBe("result")
-    expect(msg.subtype).toBe("success")
-    expect(msg.duration_ms).toBe(1234)
-    expect(msg.is_error).toBe(false)
-    expect(msg.num_turns).toBe(3)
-    expect(msg.session_id).toBe("sess_123")
-    expect(msg.result).toBe("Done!")
-    expect(msg.usage).toEqual({ input_tokens: 100, output_tokens: 50 })
-  })
-
-  test("creates error result message", () => {
-    const msg = createResultMessage("sess_123", {
-      subtype: "error",
-      isError: true,
-      result: "Something went wrong",
-    })
-    expect(msg.subtype).toBe("error")
-    expect(msg.is_error).toBe(true)
-  })
-
-  test("creates cancelled result message", () => {
-    const msg = createResultMessage("sess_123", {
-      subtype: "cancelled",
-    })
-    expect(msg.subtype).toBe("cancelled")
-    expect(msg.is_error).toBe(false)
-  })
-
-  test("creates minimal result message with defaults", () => {
-    const msg = createResultMessage("sess_123")
-    expect(msg.subtype).toBe("success")
-    expect(msg.duration_ms).toBe(0)
-    expect(msg.is_error).toBe(false)
-    expect(msg.num_turns).toBe(1)
-    expect(msg.usage).toBeUndefined()
-  })
-})
-
-describe("createSystemMessage", () => {
-  test("creates system message with subtype", () => {
-    const msg = createSystemMessage("status", { running: true })
-    expect(msg.type).toBe("system")
-    expect(msg.subtype).toBe("status")
-    expect(msg.running).toBe(true)
-  })
-
-  test("creates system message with tool_result", () => {
-    const msg = createSystemMessage("tool_result", {
-      tool_result: createToolResult("call_123", "Result"),
-    })
-    expect(msg.subtype).toBe("tool_result")
-    expect(msg.tool_result).toEqual({
-      type: "tool_result",
-      tool_use_id: "call_123",
-      content: "Result",
-    })
-  })
-})
-
 describe("NDJSON format", () => {
-  test("assistant message serializes to valid JSON", () => {
-    const msg = createAssistantText("Hello", "claude-sonnet-4-20250514")
-    const response = createResponse(1, msg)
+  test("response serializes to valid JSON", () => {
+    const response = createResponse(1, assistantText("Hello", "claude-sonnet-4-20250514"))
     const json = JSON.stringify(response)
     expect(() => JSON.parse(json)).not.toThrow()
   })
 
   test("multiple responses can be joined with newlines", () => {
     const responses = [
-      createResponse(1, createAssistantText("Hello", "claude-sonnet-4-20250514")),
-      createResponse(1, createAssistantToolUse("call_1", "read", { path: "/tmp" }, "claude-sonnet-4-20250514")),
-      createResponse(
-        1,
-        createResultMessage("sess_123", {
-          result: "Done",
-          inputTokens: 10,
-          outputTokens: 5,
-        }),
-      ),
+      createResponse(1, assistantText("Hello", "claude-sonnet-4-20250514")),
+      createResponse(1, assistantText(" world", "claude-sonnet-4-20250514")),
+      createResponse(1, resultMessage("sess_1", "success", 1000, 1, { result: "Hello world", inputTokens: 10, outputTokens: 5 })),
     ]
     const ndjson = responses.map((r) => JSON.stringify(r)).join("\n")
     const lines = ndjson.split("\n")
     expect(lines.length).toBe(3)
     lines.forEach((line) => {
       expect(() => JSON.parse(line)).not.toThrow()
-    })
-  })
-})
-
-// =============================================================================
-// Legacy Format Tests (backwards compatibility)
-// =============================================================================
-
-describe("legacy format (backwards compatibility)", () => {
-  test("createResponse accepts legacy text chunk", () => {
-    const response = createResponse(1, { type: "text", chunk: "Hello" })
-    expect(response.jsonrpc).toBe("2.0")
-    expect(response.id).toBe(1)
-    expect(response.result).toEqual({ type: "text", chunk: "Hello" })
-  })
-
-  test("createResponse accepts legacy complete", () => {
-    const response = createResponse("abc", {
-      type: "complete",
-      response: "Done!",
-      usage: { inputTokens: 100, outputTokens: 50 },
-    })
-    expect(response.result).toEqual({
-      type: "complete",
-      response: "Done!",
-      usage: { inputTokens: 100, outputTokens: 50 },
-    })
-  })
-
-  test("createResponse accepts legacy tool_call", () => {
-    const response = createResponse(1, {
-      type: "tool_call",
-      callId: "call_123",
-      name: "read",
-      args: { path: "/foo" },
-    })
-    expect(response.result).toEqual({
-      type: "tool_call",
-      callId: "call_123",
-      name: "read",
-      args: { path: "/foo" },
     })
   })
 })

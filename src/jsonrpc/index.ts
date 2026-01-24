@@ -1,9 +1,7 @@
 /**
- * JSON-RPC listener for miriad-code
+ * JSON-RPC server for miriad-code
  *
- * Implements NDJSON protocol over stdin/stdout for interactive mode.
- * Uses Claude Code SDK compatible message types.
- * See docs/claude-code-protocol.md for the specification.
+ * NDJSON over stdin/stdout with Claude Code SDK compatible messages.
  */
 
 import * as readline from "readline"
@@ -14,15 +12,14 @@ import {
   validateRunParams,
   createResponse,
   createErrorResponse,
-  createAssistantText,
-  createAssistantToolUse,
-  createToolResult,
-  createResultMessage,
-  createSystemMessage,
+  assistantText,
+  assistantToolUse,
+  toolResult,
+  resultMessage,
+  systemMessage,
   ErrorCodes,
   type JsonRpcRequest,
   type JsonRpcResponse,
-  type ContentBlock,
 } from "./protocol"
 import { Log } from "../util/log"
 import { Config } from "../config"
@@ -40,14 +37,8 @@ interface RequestState {
   model: string
   numTurns: number
   startTime: number
-  pendingToolCalls: Map<string, { name: string; input: unknown }>
-  accumulatedText: string
 }
 
-/**
- * JSON-RPC server that listens on stdin and writes to stdout.
- * Streams Claude Code SDK compatible messages.
- */
 export class JsonRpcServer {
   private storage: Storage
   private currentRequest: RequestState | null = null
@@ -57,9 +48,6 @@ export class JsonRpcServer {
     this.storage = createStorage(options.dbPath)
   }
 
-  /**
-   * Start listening for requests on stdin.
-   */
   async start(): Promise<void> {
     await initializeDefaultEntries(this.storage)
 
@@ -83,9 +71,6 @@ export class JsonRpcServer {
     log.info("JSON-RPC server started", { dbPath: this.options.dbPath })
   }
 
-  /**
-   * Handle a single line of input (one JSON-RPC request).
-   */
   private async handleLine(line: string): Promise<void> {
     const trimmed = line.trim()
     if (!trimmed) return
@@ -96,13 +81,9 @@ export class JsonRpcServer {
       return
     }
 
-    const request = parseResult.request
-    await this.handleRequest(request)
+    await this.handleRequest(parseResult.request)
   }
 
-  /**
-   * Route the request to the appropriate handler.
-   */
   private async handleRequest(request: JsonRpcRequest): Promise<void> {
     switch (request.method) {
       case "run":
@@ -119,11 +100,7 @@ export class JsonRpcServer {
     }
   }
 
-  /**
-   * Handle a 'run' request - execute a prompt.
-   */
   private async handleRun(request: JsonRpcRequest): Promise<void> {
-    // Check if already running
     if (this.currentRequest) {
       this.send(
         createErrorResponse(request.id, ErrorCodes.ALREADY_RUNNING, "A request is already running", {
@@ -133,7 +110,6 @@ export class JsonRpcServer {
       return
     }
 
-    // Validate params
     const paramsResult = validateRunParams(request.params)
     if ("error" in paramsResult) {
       this.send(createErrorResponse(request.id, ErrorCodes.INVALID_PARAMS, paramsResult.error))
@@ -151,8 +127,6 @@ export class JsonRpcServer {
       model: Config.model ?? "unknown",
       numTurns: 0,
       startTime: Date.now(),
-      pendingToolCalls: new Map(),
-      accumulatedText: "",
     }
 
     log.info("starting run", { requestId: request.id, sessionId, promptLength: prompt.length })
@@ -167,16 +141,11 @@ export class JsonRpcServer {
 
       const result = await runAgent(prompt, agentOptions)
 
-      // Send result message (if not cancelled)
       if (!abortController.signal.aborted) {
         this.send(
           createResponse(
             request.id,
-            createResultMessage(sessionId, {
-              subtype: "success",
-              durationMs: Date.now() - this.currentRequest.startTime,
-              isError: false,
-              numTurns: this.currentRequest.numTurns,
+            resultMessage(sessionId, "success", Date.now() - this.currentRequest.startTime, this.currentRequest.numTurns, {
               result: result.response,
               inputTokens: result.usage.inputTokens,
               outputTokens: result.usage.outputTokens,
@@ -185,10 +154,7 @@ export class JsonRpcServer {
         )
       }
     } catch (error) {
-      if (abortController.signal.aborted) {
-        // Already sent cancelled response
-        return
-      }
+      if (abortController.signal.aborted) return
 
       const message = error instanceof Error ? error.message : String(error)
       log.error("run failed", { requestId: request.id, error: message })
@@ -196,11 +162,7 @@ export class JsonRpcServer {
       this.send(
         createResponse(
           request.id,
-          createResultMessage(sessionId, {
-            subtype: "error",
-            durationMs: Date.now() - (this.currentRequest?.startTime ?? Date.now()),
-            isError: true,
-            numTurns: this.currentRequest?.numTurns ?? 0,
+          resultMessage(sessionId, "error", Date.now() - (this.currentRequest?.startTime ?? Date.now()), this.currentRequest?.numTurns ?? 0, {
             result: message,
           }),
         ),
@@ -210,65 +172,32 @@ export class JsonRpcServer {
     }
   }
 
-  /**
-   * Handle agent events and stream them as Claude Code SDK compatible messages.
-   */
   private handleAgentEvent(requestId: string | number, event: AgentEvent): void {
     if (!this.currentRequest) return
+    const { model } = this.currentRequest
 
     switch (event.type) {
       case "assistant":
-        // Accumulate text for the current turn
-        this.currentRequest.accumulatedText += event.content
-        // Stream as assistant message with text block
-        this.send(createResponse(requestId, createAssistantText(event.content, this.currentRequest.model)))
+        this.send(createResponse(requestId, assistantText(event.content, model)))
         break
 
       case "tool_call":
         if (event.toolName && event.toolCallId) {
-          // Track pending tool call
-          this.currentRequest.pendingToolCalls.set(event.toolCallId, {
-            name: event.toolName,
-            input: event.toolArgs ?? {},
-          })
-          // Stream as assistant message with tool_use block
-          this.send(
-            createResponse(
-              requestId,
-              createAssistantToolUse(event.toolCallId, event.toolName, event.toolArgs ?? {}, this.currentRequest.model),
-            ),
-          )
+          this.send(createResponse(requestId, assistantToolUse(event.toolCallId, event.toolName, event.toolArgs ?? {}, model)))
         }
         break
 
       case "tool_result":
         if (event.toolCallId) {
-          // Remove from pending
-          this.currentRequest.pendingToolCalls.delete(event.toolCallId)
           this.currentRequest.numTurns++
-          // Stream tool result as system message (tool results go back as user messages in full protocol,
-          // but for streaming we emit them as system messages)
           this.send(
-            createResponse(
-              requestId,
-              createSystemMessage("tool_result", {
-                tool_result: createToolResult(event.toolCallId, event.content, false),
-              }),
-            ),
+            createResponse(requestId, systemMessage("tool_result", { tool_result: toolResult(event.toolCallId, event.content) })),
           )
         }
         break
 
       case "error":
-        // Stream error as system message
-        this.send(
-          createResponse(
-            requestId,
-            createSystemMessage("error", {
-              message: event.content,
-            }),
-          ),
-        )
+        this.send(createResponse(requestId, systemMessage("error", { message: event.content })))
         break
 
       case "consolidation":
@@ -276,7 +205,7 @@ export class JsonRpcServer {
           this.send(
             createResponse(
               requestId,
-              createSystemMessage("consolidation", {
+              systemMessage("consolidation", {
                 entries_created: event.consolidationResult.entriesCreated,
                 entries_updated: event.consolidationResult.entriesUpdated,
                 entries_archived: event.consolidationResult.entriesArchived,
@@ -286,64 +215,30 @@ export class JsonRpcServer {
           )
         }
         break
-
-      // Ignore 'user', 'done', 'compaction' events for JSON-RPC output
     }
   }
 
-  /**
-   * Handle a 'cancel' request - abort the current run.
-   */
   private async handleCancel(request: JsonRpcRequest): Promise<void> {
     if (!this.currentRequest) {
       this.send(createErrorResponse(request.id, ErrorCodes.NOT_RUNNING, "No request is currently running"))
       return
     }
 
-    const cancelledId = this.currentRequest.id
-    const sessionId = this.currentRequest.sessionId
-    const startTime = this.currentRequest.startTime
-    const numTurns = this.currentRequest.numTurns
-    const abortController = this.currentRequest.abortController
-
-    // Clear currentRequest before aborting to prevent race with finally block
+    const { id: cancelledId, sessionId, startTime, numTurns, abortController } = this.currentRequest
     this.currentRequest = null
     abortController.abort()
 
     log.info("request cancelled", { cancelledRequestId: cancelledId })
 
-    // Send cancelled result for the original request
-    this.send(
-      createResponse(
-        cancelledId,
-        createResultMessage(sessionId, {
-          subtype: "cancelled",
-          durationMs: Date.now() - startTime,
-          isError: false,
-          numTurns,
-        }),
-      ),
-    )
-
-    // Send acknowledgement for the cancel request
-    this.send(
-      createResponse(
-        request.id,
-        createSystemMessage("status", {
-          running: false,
-        }),
-      ),
-    )
+    this.send(createResponse(cancelledId, resultMessage(sessionId, "cancelled", Date.now() - startTime, numTurns)))
+    this.send(createResponse(request.id, systemMessage("status", { running: false })))
   }
 
-  /**
-   * Handle a 'status' request - return current state.
-   */
   private async handleStatus(request: JsonRpcRequest): Promise<void> {
     this.send(
       createResponse(
         request.id,
-        createSystemMessage("status", {
+        systemMessage("status", {
           running: this.currentRequest !== null,
           request_id: this.currentRequest?.id,
           session_id: this.currentRequest?.sessionId,
@@ -352,22 +247,14 @@ export class JsonRpcServer {
     )
   }
 
-  /**
-   * Send a JSON-RPC response to stdout.
-   */
   private send(response: JsonRpcResponse): void {
-    const line = JSON.stringify(response)
-    process.stdout.write(line + "\n")
+    process.stdout.write(JSON.stringify(response) + "\n")
   }
 }
 
-/**
- * Start the JSON-RPC server.
- */
 export async function runJsonRpc(options: JsonRpcServerOptions): Promise<void> {
   const server = new JsonRpcServer(options)
   await server.start()
 }
 
-// Re-export types
 export type { JsonRpcRequest, JsonRpcResponse } from "./protocol"

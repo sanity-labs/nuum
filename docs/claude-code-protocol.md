@@ -203,48 +203,29 @@ interface ControlResponse {
 }
 ```
 
-## What We Support
+## What We Support (miriad-code)
 
-### Currently Implemented (miriad-code)
+We use JSON-RPC 2.0 envelope with Claude Code SDK compatible message types.
+
+### Implemented
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| User messages | ✅ | String content only |
-| Assistant messages | ✅ | Text blocks only |
-| Tool use blocks | ✅ | Full support |
-| Tool result blocks | ✅ | Full support |
-| Result message | ✅ | Basic fields |
-| Error handling | ✅ | Basic errors |
+| Assistant messages | ✅ | `type: "assistant"` with content blocks |
+| Text blocks | ✅ | `{type: "text", text: string}` |
+| Tool use blocks | ✅ | `{type: "tool_use", id, name, input}` |
+| Tool result blocks | ✅ | `{type: "tool_result", tool_use_id, content}` |
+| Result message | ✅ | `type: "result"` with usage, duration, etc. |
+| System messages | ✅ | `type: "system"` for status, errors, consolidation |
 
-### Not Yet Implemented
+### Not Implemented
 
-| Feature | Priority | Notes |
-|---------|----------|-------|
-| Thinking blocks | Low | Requires beta flag |
-| Stream events | Medium | Partial message updates |
-| Control protocol | Low | Permission callbacks, hooks |
-| System messages | Low | Various subtypes |
-| Session management | Medium | Resume, fork |
-
-## Migration Plan
-
-To align with Claude Code protocol:
-
-1. **Phase 1**: Rename message types to match
-   - `text` → `assistant` with content blocks
-   - `tool_call` → embedded in `assistant` as `tool_use` block
-   - `tool_result` → `user` with `tool_result` block
-   - `complete` → `result`
-
-2. **Phase 2**: Add content block structure
-   - Wrap text in `TextBlock`
-   - Wrap tool calls in `ToolUseBlock`
-   - Wrap tool results in `ToolResultBlock`
-
-3. **Phase 3**: Add optional features
-   - Stream events for partial updates
-   - System messages for status
-   - Control protocol for permissions
+| Feature | Notes |
+|---------|-------|
+| Thinking blocks | Requires beta flag |
+| Stream events | Partial message updates |
+| Control protocol | Permission callbacks, hooks, MCP routing |
+| User messages | We use JSON-RPC `run` method instead |
 
 ## Example Message Flow
 
