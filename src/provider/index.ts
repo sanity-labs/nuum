@@ -9,11 +9,15 @@ import { createAnthropic } from "@ai-sdk/anthropic"
 import {
   generateText,
   streamText,
+  tool,
+  InvalidToolArgumentsError,
+  NoSuchToolError,
   type CoreMessage,
   type CoreTool,
   type LanguageModel,
   type StreamTextResult,
   type GenerateTextResult,
+  type ToolSet,
 } from "ai"
 import { z } from "zod"
 import { Config } from "../config"
@@ -84,38 +88,102 @@ export namespace Provider {
   }
 
   /**
-   * Wrap tools to make them resilient to validation errors.
-   * 
-   * When the model makes a tool call with invalid arguments (wrong param names,
-   * type mismatches, etc.), we want the model to see the error and retry -
-   * not crash the turn.
-   * 
-   * For each tool, we create a wrapper that:
-   * 1. Keeps the original schema (so model sees proper parameter docs)
-   * 2. Wraps execute to catch any errors and return them as results
-   * 
-   * Note: This catches errors thrown by the execute function itself.
-   * Schema validation errors from the AI SDK are handled separately via
-   * experimental_repairToolCall.
+   * Internal tool name for surfacing validation errors to the model.
+   * This tool is added to every tool set and used by repairToolCall
+   * to redirect invalid tool calls.
    */
-  function wrapToolsForErrorResilience(
+  const INVALID_TOOL_CALL = "__invalid_tool_call__"
+
+  /**
+   * Create the internal error tool that surfaces validation errors.
+   * The tool result includes what the agent tried to do so they can fix it.
+   */
+  function createInvalidToolCallTool(): CoreTool {
+    return tool({
+      description: "Internal tool - surfaces validation errors for invalid tool calls",
+      parameters: z.object({
+        toolName: z.string().describe("The tool that was called"),
+        args: z.string().describe("The arguments that were provided (as JSON)"),
+        error: z.string().describe("The validation error message"),
+      }),
+      execute: async ({ toolName, args, error }) => {
+        return `Error: Invalid tool call to "${toolName}"
+
+You provided these arguments:
+${args}
+
+Validation error:
+${error}
+
+Please check the tool's parameter schema and try again with correct arguments.`
+      },
+    })
+  }
+
+  /**
+   * Create a repair function that redirects invalid tool calls to our error tool.
+   * 
+   * When the model makes a tool call with invalid arguments, instead of crashing
+   * the turn, we redirect to __invalid_tool_call__ which returns the error as
+   * a tool result. The model sees what it tried to do and can retry.
+   */
+  function createToolCallRepairFunction<TOOLS extends ToolSet>() {
+    return async ({ toolCall, error }: {
+      toolCall: { toolName: string; toolCallId: string; args: unknown }
+      tools: TOOLS
+      parameterSchema: (options: { toolName: string }) => unknown
+      error: NoSuchToolError | InvalidToolArgumentsError
+    }) => {
+      const errorMessage = error.message || String(error)
+      
+      log.warn("invalid tool call - redirecting to error tool", {
+        toolName: toolCall.toolName,
+        error: errorMessage,
+      })
+
+      // Redirect to our error tool with full context
+      // Note: args must be a stringified JSON per LanguageModelV1FunctionToolCall type
+      return {
+        toolCallType: "function" as const,
+        toolName: INVALID_TOOL_CALL,
+        toolCallId: toolCall.toolCallId,
+        args: JSON.stringify({
+          toolName: toolCall.toolName,
+          args: JSON.stringify(toolCall.args, null, 2),
+          error: errorMessage,
+        }),
+      }
+    }
+  }
+
+  /**
+   * Add the invalid tool call handler and wrap tools for runtime error resilience.
+   * 
+   * This does two things:
+   * 1. Adds __invalid_tool_call__ tool for surfacing validation errors
+   * 2. Wraps each tool's execute to catch runtime errors
+   */
+  function prepareTools(
     tools: Record<string, CoreTool> | undefined
   ): Record<string, CoreTool> | undefined {
     if (!tools) return undefined
 
-    const wrapped: Record<string, CoreTool> = {}
+    const prepared: Record<string, CoreTool> = {
+      // Add our error handling tool
+      [INVALID_TOOL_CALL]: createInvalidToolCallTool(),
+    }
 
-    for (const [name, tool] of Object.entries(tools)) {
-      const originalExecute = tool.execute
+    for (const [name, t] of Object.entries(tools)) {
+      const originalExecute = t.execute
 
       if (!originalExecute) {
         // Tool without execute - pass through unchanged
-        wrapped[name] = tool
+        prepared[name] = t
         continue
       }
 
-      wrapped[name] = {
-        ...tool,
+      prepared[name] = {
+        ...t,
         // Keep original schema so model sees proper parameter documentation
         execute: async (args: unknown, context: unknown) => {
           try {
@@ -127,13 +195,13 @@ export namespace Provider {
               toolName: name,
               error: message,
             })
-            return `Error executing tool ${name}: ${message}`
+            return `Error executing tool "${name}": ${message}`
           }
         },
       }
     }
 
-    return wrapped
+    return prepared
   }
 
 
@@ -151,11 +219,12 @@ export namespace Provider {
     return generateText({
       model: options.model,
       messages: options.messages,
-      tools: wrapToolsForErrorResilience(options.tools),
+      tools: prepareTools(options.tools),
       maxTokens: options.maxTokens,
       temperature: options.temperature,
       abortSignal: options.abortSignal,
       system: options.system,
+      experimental_repairToolCall: createToolCallRepairFunction(),
     })
   }
 
@@ -174,11 +243,12 @@ export namespace Provider {
     return streamText({
       model: options.model,
       messages: options.messages,
-      tools: wrapToolsForErrorResilience(options.tools),
+      tools: prepareTools(options.tools),
       maxTokens: options.maxTokens,
       temperature: options.temperature,
       abortSignal: options.abortSignal,
       system: options.system,
+      experimental_repairToolCall: createToolCallRepairFunction(),
     })
   }
 
