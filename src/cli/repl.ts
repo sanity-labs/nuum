@@ -14,7 +14,9 @@ import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
 import { createStorage, initializeDefaultEntries, type Storage } from "../storage"
-import { runAgent, AgentCancelledError, type AgentEvent, type AgentOptions } from "../agent"
+import { runAgent, AgentCancelledError, isCompactionInProgress, type AgentEvent, type AgentOptions } from "../agent"
+import { runCompactionWorker } from "../temporal"
+import { runConsolidationWorker } from "../ltm"
 import { runInspect, runDump } from "./inspect"
 
 const PROMPT = "miriad-code> "
@@ -171,6 +173,10 @@ export class ReplSession {
         this.rl?.prompt()
         break
 
+      case "compact":
+        await this.runCompaction(parts[1])
+        break
+
       case "help":
       case "h":
       case "?":
@@ -196,6 +202,7 @@ export class ReplSession {
     console.log("  /clear           Clear conversation history (fresh session)")
     console.log("  /inspect         Show memory statistics")
     console.log("  /dump            Show full system prompt")
+    console.log("  /compact [target] Run compaction (optional target tokens, default 80000)")
     console.log()
     console.log("Shortcuts:")
     console.log("  Ctrl+C           Cancel current request")
@@ -203,6 +210,57 @@ export class ReplSession {
     console.log("  Up/Down arrows   Navigate history")
     console.log("  Ctrl+R           Reverse history search")
     console.log()
+  }
+
+  /**
+   * Run compaction manually.
+   */
+  private async runCompaction(targetArg?: string): Promise<void> {
+    if (isCompactionInProgress()) {
+      console.log("Compaction is already running in the background.")
+      this.rl?.prompt()
+      return
+    }
+
+    const target = targetArg ? parseInt(targetArg, 10) : 80_000
+    if (isNaN(target) || target < 1000) {
+      console.log("Invalid target. Usage: /compact [target_tokens]")
+      console.log("Example: /compact 50000")
+      this.rl?.prompt()
+      return
+    }
+
+    console.log(`Running compaction (target: ${target.toLocaleString()} tokens)...`)
+
+    try {
+      // Run LTM consolidation first
+      const messages = await this.storage.temporal.getMessages()
+      if (messages.length > 0) {
+        console.log(`  Running LTM consolidation on ${messages.length} messages...`)
+        const consolidationResult = await runConsolidationWorker(this.storage, messages)
+        if (consolidationResult.ran) {
+          console.log(`  LTM: ${consolidationResult.entriesCreated} created, ${consolidationResult.entriesUpdated} updated, ${consolidationResult.entriesArchived} archived`)
+        } else {
+          console.log(`  LTM: skipped (${consolidationResult.summary})`)
+        }
+      }
+
+      // Run compaction
+      const result = await runCompactionWorker(this.storage, {
+        compactionThreshold: target + 20_000, // threshold above target
+        compactionTarget: target,
+      })
+
+      const compressed = result.tokensBefore - result.tokensAfter
+      console.log(`  Compaction complete:`)
+      console.log(`    ${result.summariesCreated} summaries created`)
+      console.log(`    ${compressed.toLocaleString()} tokens compressed`)
+      console.log(`    ${result.tokensBefore.toLocaleString()} → ${result.tokensAfter.toLocaleString()} tokens`)
+    } catch (error) {
+      console.error(`Compaction failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    this.rl?.prompt()
   }
 
   /**
