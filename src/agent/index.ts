@@ -16,6 +16,7 @@ import type {
 } from "ai"
 import { z } from "zod"
 import { Provider } from "../provider"
+import { Config } from "../config"
 import type { Storage, Task } from "../storage"
 import { Identifier } from "../id"
 import {
