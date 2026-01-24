@@ -376,10 +376,18 @@ export namespace Mcp {
   }
 
   // ============================================================================
-  // Singleton Instance
+  // Singleton Instance with Config Change Detection
   // ============================================================================
 
   let manager: Manager | null = null
+  let lastConfigHash: string | null = null
+
+  /**
+   * Compute a simple hash of the config for change detection
+   */
+  function hashConfig(config: ConfigType): string {
+    return JSON.stringify(config)
+  }
 
   /**
    * Get the singleton manager instance
@@ -392,10 +400,30 @@ export namespace Mcp {
   }
 
   /**
-   * Initialize MCP with config
+   * Check if MCP is already initialized
    */
-  export async function initialize(config?: ConfigType): Promise<void> {
-    await getManager().initialize(config)
+  export function isInitialized(): boolean {
+    return manager !== null && lastConfigHash !== null
+  }
+
+  /**
+   * Initialize MCP with config.
+   * Only reinitializes if config has changed or not yet initialized.
+   * Returns true if initialization was performed, false if skipped.
+   */
+  export async function initialize(config?: ConfigType): Promise<boolean> {
+    const mcpConfig = config ?? (await loadConfig())
+    const configHash = hashConfig(mcpConfig)
+
+    // Skip if already initialized with same config
+    if (manager && lastConfigHash === configHash) {
+      return false
+    }
+
+    // Initialize (or reinitialize with new config)
+    await getManager().initialize(mcpConfig)
+    lastConfigHash = configHash
+    return true
   }
 
   /**
@@ -405,6 +433,7 @@ export namespace Mcp {
     if (manager) {
       await manager.shutdown()
       manager = null
+      lastConfigHash = null
     }
   }
 

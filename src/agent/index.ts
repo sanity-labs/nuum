@@ -310,19 +310,24 @@ export { buildSystemPrompt, buildConversationHistory, buildAgentContext } from "
 
 /**
  * Initialize MCP servers from config.
- * Call this once at startup before running the agent.
+ * Only reinitializes if config has changed.
+ * Returns true if initialization was performed.
  */
-export async function initializeMcp(): Promise<void> {
+export async function initializeMcp(): Promise<boolean> {
   try {
-    await Mcp.initialize()
-    const status = Mcp.getStatus()
-    if (status.length > 0) {
-      log.info("MCP servers connected", {
-        servers: status.map((s) => `${s.name} (${s.toolCount} tools)`),
-      })
+    const didInitialize = await Mcp.initialize()
+    if (didInitialize) {
+      const status = Mcp.getStatus()
+      if (status.length > 0) {
+        log.info("MCP servers connected", {
+          servers: status.map((s) => `${s.name} (${s.toolCount} tools)`),
+        })
+      }
     }
+    return didInitialize
   } catch (error) {
     log.error("Failed to initialize MCP", { error })
+    return false
   }
 }
 

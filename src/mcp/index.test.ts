@@ -240,5 +240,38 @@ describe("Mcp", () => {
       expect(Array.isArray(names)).toBe(true)
       expect(names).toHaveLength(0)
     })
+
+    test("isInitialized returns false before init", async () => {
+      await Mcp.shutdown()
+      expect(Mcp.isInitialized()).toBe(false)
+    })
+
+    test("initialize skips if config unchanged", async () => {
+      await Mcp.shutdown()
+      const config = { mcpServers: {} }
+      
+      // First init should return true
+      const first = await Mcp.initialize(config)
+      expect(first).toBe(true)
+      expect(Mcp.isInitialized()).toBe(true)
+      
+      // Second init with same config should return false (skipped)
+      const second = await Mcp.initialize(config)
+      expect(second).toBe(false)
+    })
+
+    test("initialize runs if config changed", async () => {
+      await Mcp.shutdown()
+      const config1 = { mcpServers: {} }
+      const config2 = { mcpServers: { test: { command: "echo", args: [] } } }
+      
+      // First init
+      const first = await Mcp.initialize(config1)
+      expect(first).toBe(true)
+      
+      // Second init with different config should return true
+      const second = await Mcp.initialize(config2)
+      expect(second).toBe(true)
+    })
   })
 })
