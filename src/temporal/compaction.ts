@@ -47,13 +47,27 @@ export async function shouldTriggerCompaction(
 }
 
 /**
+ * Fixed token overhead for context that isn't tracked in temporal storage.
+ * This accounts for:
+ * - System prompt (~1-2k tokens)
+ * - Tool definitions (~3-5k tokens for 10+ tools)
+ * - Message structure overhead (JSON, role markers, IDs)
+ * - Safety margin for provider-specific formatting
+ *
+ * Without this, the estimate undercounts actual API tokens by ~40-50%,
+ * causing compaction to trigger too late (e.g., estimate 103k = actual 160k).
+ */
+export const FIXED_OVERHEAD_TOKENS = 40_000
+
+/**
  * Get the token count of the effective view (what actually goes to the agent).
+ * Includes fixed overhead for system prompt, tools, and formatting.
  */
 export async function getEffectiveViewTokens(temporal: TemporalStorage): Promise<number> {
   const messages = await temporal.getMessages()
   const summaries = await temporal.getSummaries()
   const view = buildTemporalView({ budget: 0, messages, summaries })
-  return view.totalTokens
+  return view.totalTokens + FIXED_OVERHEAD_TOKENS
 }
 
 /**
