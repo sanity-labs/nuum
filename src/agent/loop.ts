@@ -227,24 +227,28 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     totalOutputTokens += response.usage.completionTokens
 
     // Log cache metrics for observability
+    // Note: Anthropic's input_tokens (promptTokens) only counts tokens AFTER the last
+    // cache breakpoint. It does NOT include cached tokens. So:
+    //   total = cacheRead + cacheWrite + promptTokens
     const anthropicMeta = response.providerMetadata?.anthropic as {
       cacheCreationInputTokens?: number
       cacheReadInputTokens?: number
     } | undefined
     
     if (anthropicMeta) {
-      const cacheCreation = anthropicMeta.cacheCreationInputTokens ?? 0
+      const cacheWrite = anthropicMeta.cacheCreationInputTokens ?? 0
       const cacheRead = anthropicMeta.cacheReadInputTokens ?? 0
-      const uncached = response.usage.promptTokens - cacheCreation - cacheRead
+      const uncached = response.usage.promptTokens // This IS the uncached tokens
+      const total = cacheRead + cacheWrite + uncached
       
       log.info("token usage", {
-        input: response.usage.promptTokens,
+        input: total,
         output: response.usage.completionTokens,
-        cacheWrite: cacheCreation,
-        cacheRead: cacheRead,
-        uncached: uncached,
-        cacheHitRate: response.usage.promptTokens > 0 
-          ? `${Math.round((cacheRead / response.usage.promptTokens) * 100)}%`
+        cacheWrite,
+        cacheRead,
+        uncached,
+        cacheHitRate: total > 0 
+          ? `${Math.round((cacheRead / total) * 100)}%`
           : "0%",
       })
     }
