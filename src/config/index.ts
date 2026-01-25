@@ -30,10 +30,12 @@ export namespace Config {
       mainAgentContext: z.number().default(180_000),
       /** Max tokens for temporal view in prompt */
       temporalBudget: z.number().default(64_000),
-      /** Trigger compaction when uncompacted exceeds this */
-      compactionThreshold: z.number().default(100_000),
+      /** Soft limit: run compaction synchronously before turn if exceeded */
+      compactionThreshold: z.number().default(80_000),
       /** Target size after compaction */
-      compactionTarget: z.number().default(80_000),
+      compactionTarget: z.number().default(60_000),
+      /** Hard limit: refuse turn entirely if exceeded (emergency brake) */
+      compactionHardLimit: z.number().default(150_000),
       /** Minimum recent messages to preserve (never summarized) */
       recencyBufferMessages: z.number().default(10),
       /** Temporal search sub-agent budget (Sonnet 1M beta) */

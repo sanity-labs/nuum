@@ -39,7 +39,7 @@ import {
 } from "../tool"
 import { runAgentLoop, AgentLoopCancelledError } from "./loop"
 import { buildAgentContext } from "../context"
-import { runMemoryCuration, type MemoryCurationResult, type ConsolidationResult, type CompactionResult } from "../memory"
+import { runMemoryCuration, getEffectiveViewTokens, type MemoryCurationResult, type ConsolidationResult, type CompactionResult } from "../memory"
 import { Log } from "../util/log"
 import { activity } from "../util/activity-log"
 import { Mcp } from "../mcp"
@@ -441,6 +441,45 @@ export async function runAgent(
 
   // Initialize MCP servers (loads config and connects)
   await initializeMcp()
+
+  // Pre-turn compaction gate: ensure we're not overflowing before starting
+  const config = Config.get()
+  const softLimit = config.tokenBudgets.compactionThreshold
+  const hardLimit = config.tokenBudgets.compactionHardLimit
+  const tokensBefore = await getEffectiveViewTokens(storage.temporal)
+
+  if (tokensBefore > hardLimit) {
+    // Emergency brake: refuse turn entirely
+    log.error("context overflow - refusing turn", { tokens: tokensBefore, hardLimit })
+    throw new Error(
+      `Context overflow: ${tokensBefore} tokens exceeds hard limit of ${hardLimit}. ` +
+      `Run 'miriad-code --compact' to reduce context size before continuing.`
+    )
+  }
+
+  if (tokensBefore > softLimit) {
+    // Proactive compaction: run synchronously before proceeding
+    log.warn("approaching token limit, running compaction before turn", { 
+      tokens: tokensBefore, 
+      softLimit,
+      target: config.tokenBudgets.compactionTarget 
+    })
+    
+    await runMemoryCuration(storage, { force: true })
+    
+    // Verify compaction helped
+    const tokensAfter = await getEffectiveViewTokens(storage.temporal)
+    if (tokensAfter > softLimit) {
+      log.warn("compaction didn't reduce tokens below soft limit", { 
+        before: tokensBefore, 
+        after: tokensAfter,
+        softLimit 
+      })
+      // Continue anyway - we tried our best, and we're still under hard limit
+    } else {
+      log.info("pre-turn compaction successful", { before: tokensBefore, after: tokensAfter })
+    }
+  }
 
   // Get the model
   const model = Provider.getModelForTier("reasoning")
