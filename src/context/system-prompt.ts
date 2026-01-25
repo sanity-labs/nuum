@@ -2,8 +2,13 @@
  * System prompt building for the agent.
  *
  * Builds the static part of the agent's context: identity, behavior,
- * present state, and instructions. This is shared across all workloads
- * (main agent, compaction, consolidation) for prompt caching efficiency.
+ * and instructions. This is shared across all workloads (main agent,
+ * compaction, consolidation) for prompt caching efficiency.
+ * 
+ * NOTE: Present state (mission, status, tasks) is NOT included here.
+ * It changes frequently and would invalidate the cache. Instead, the
+ * present_* tools return the full state, so it appears in conversation
+ * history when the agent checks or updates it.
  */
 
 import type { Storage } from "../storage"
@@ -17,7 +22,7 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Build the system prompt (identity, behavior, present state, instructions).
+ * Build the system prompt (identity, behavior, instructions).
  *
  * This is the "who you are" part of the agent context. It's identical
  * across all workloads to maximize prompt caching.
@@ -27,10 +32,9 @@ export async function buildSystemPrompt(storage: Storage): Promise<{ prompt: str
   const identity = await storage.ltm.read("identity")
   const behavior = await storage.ltm.read("behavior")
 
-  // Get present state
-  const present = await storage.present.get()
-
   // Build system prompt (no temporal history - that goes in conversation turns)
+  // NOTE: Present state is NOT included - it changes frequently and would
+  // invalidate the cache. The agent sees it via tool results in history.
   let prompt = `You are a coding assistant with persistent memory.
 
 Your memory spans across conversations, allowing you to remember past decisions, track ongoing projects, and learn user preferences.
@@ -54,20 +58,6 @@ ${behavior.body}
 
 `
   }
-
-  // Add present state
-  prompt += `<present_state>
-<mission>${present.mission ?? "(none)"}</mission>
-<status>${present.status ?? "(none)"}</status>
-<tasks>
-`
-  for (const task of present.tasks) {
-    prompt += `  <task status="${task.status}">${task.content}</task>\n`
-  }
-  prompt += `</tasks>
-</present_state>
-
-`
 
   // Add available tools description
   prompt += `You have access to tools for file operations (read, write, edit, bash, glob, grep).
