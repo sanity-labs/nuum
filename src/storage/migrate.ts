@@ -24,11 +24,24 @@ const log = Log.create({ service: "migrate" })
 function getMigrationsDir(): string {
   const currentDir = dirname(new URL(import.meta.url).pathname)
   
-  // If we're in dist/, go to src/
-  if (currentDir.includes("/dist/")) {
-    return currentDir.replace("/dist/", "/src/") + "/migrations"
+  // In bundled mode, we need to find the package root and look in src/storage/migrations
+  // The bundle runs from dist/index.js, but migrations are in src/storage/migrations/
+  
+  // Try to find package root by looking for node_modules/@miriad-systems/nuum
+  if (currentDir.includes("node_modules/@miriad-systems/nuum")) {
+    const packageRoot = currentDir.split("node_modules/@miriad-systems/nuum")[0] + 
+      "node_modules/@miriad-systems/nuum"
+    return join(packageRoot, "src/storage/migrations")
   }
   
+  // Development: if we're in dist/, go to src/
+  if (currentDir.includes("/dist")) {
+    // Go up from dist/storage to project root, then into src/storage/migrations
+    const projectRoot = currentDir.replace(/\/dist.*$/, "")
+    return join(projectRoot, "src/storage/migrations")
+  }
+  
+  // Development: already in src/storage
   return join(currentDir, "migrations")
 }
 
