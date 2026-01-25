@@ -11,7 +11,7 @@
     "src/storage/migrations"
   ],
   "scripts": {
-    "build": "bun build ./src/cli/index.ts --outdir ./dist --target bun",
+    "build": "bun build ./src/cli/index.ts --outdir ./dist --target bun && sed -i '' '1s|#!/usr/bin/env node|#!/usr/bin/env bun|' ./dist/index.js",
     "dev": "bun run ./src/cli/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
