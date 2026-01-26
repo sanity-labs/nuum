@@ -32,6 +32,7 @@ import {
 } from "./ltm"
 import { createWorkerStorage, type WorkerStorage, type WorkerType, type WorkerStatus } from "./worker"
 import { createSessionStorage, type SessionStorage } from "./session"
+import { createBackgroundStorage, type BackgroundStorage, type BackgroundReport, type BackgroundReportInput } from "./background"
 
 // Re-export types
 export type {
@@ -52,6 +53,9 @@ export type {
   WorkerType,
   WorkerStatus,
   SessionStorage,
+  BackgroundStorage,
+  BackgroundReport,
+  BackgroundReportInput,
 }
 
 export { ConflictError }
@@ -77,6 +81,7 @@ export interface Storage {
   ltm: LTMStorage
   workers: WorkerStorage
   session: SessionStorage
+  background: BackgroundStorage
 }
 
 /**
@@ -127,6 +132,7 @@ function createStorageFromDb(db: DrizzleDB): StorageWithDb {
     ltm: createLTMStorage(db),
     workers: createWorkerStorage(db),
     session: createSessionStorage(db as any),
+    background: createBackgroundStorage(db),
     _db: db,
   }
 }

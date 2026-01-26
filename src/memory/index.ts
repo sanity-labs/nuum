@@ -137,6 +137,17 @@ async function runLTMConsolidation(storage: Storage): Promise<ConsolidationResul
         activity.ltmCurator.complete(
           `${result.entriesCreated} created, ${result.entriesUpdated} updated, ${result.entriesArchived} archived`
         )
+        
+        // File a background report for the main agent to see
+        await storage.background.fileReport({
+          subsystem: "ltm_curator",
+          report: {
+            entriesCreated: result.entriesCreated,
+            entriesUpdated: result.entriesUpdated,
+            entriesArchived: result.entriesArchived,
+            details: result.details || [],
+          },
+        })
       } else {
         activity.ltmCurator.complete("No changes needed")
       }
@@ -180,6 +191,18 @@ async function runDistillation(
       result.tokensAfter,
       `${result.distillationsCreated} distillations`
     )
+
+    // File a background report if we actually did work
+    if (result.distillationsCreated > 0) {
+      await storage.background.fileReport({
+        subsystem: "distillation",
+        report: {
+          tokensBefore: result.tokensBefore,
+          tokensAfter: result.tokensAfter,
+          distillationsCreated: result.distillationsCreated,
+        },
+      })
+    }
 
     return result
   } catch (error) {

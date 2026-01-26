@@ -101,6 +101,17 @@ const INIT_SCHEMA = `
     value TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS background_reports (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    subsystem TEXT NOT NULL,
+    report TEXT NOT NULL,
+    surfaced_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_background_reports_unsurfaced
+  ON background_reports(surfaced_at) WHERE surfaced_at IS NULL;
+
   -- FTS5 virtual table for full-text search on temporal messages
   CREATE VIRTUAL TABLE IF NOT EXISTS temporal_messages_fts USING fts5(
     id UNINDEXED,

@@ -24,8 +24,12 @@ export namespace Identifier {
     // Workers
     worker: "wrk",
 
+    // Background reports
+    report: "rpt",
+
     // Misc
     session: "ses",
+    toolcall: "tcl",
   } as const
 
   export type Prefix = keyof typeof prefixes

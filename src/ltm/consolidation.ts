@@ -80,6 +80,8 @@ export interface ConsolidationResult {
   entriesArchived: number
   /** Summary from the agent */
   summary: string
+  /** Specific details about what changed (for background reports) */
+  details: string[]
   /** Token usage */
   usage: {
     inputTokens: number
@@ -127,6 +129,8 @@ interface ConsolidationToolResult {
   entryCreated?: boolean
   entryUpdated?: boolean
   entryArchived?: boolean
+  slug?: string
+  title?: string
   summary?: string
 }
 
@@ -205,7 +209,13 @@ function buildConsolidationTools(
       if (entryCreated) {
         activity.ltmCurator.ltmOperation("create", args.slug, args.title)
       }
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false, entryCreated }
+      const result: ConsolidationToolResult = { 
+        output: toolResult.output, 
+        done: false, 
+        entryCreated,
+        slug: args.slug,
+        title: args.title,
+      }
       results.set(toolCallId, result)
       return result.output
     },
@@ -220,7 +230,12 @@ function buildConsolidationTools(
       if (entryUpdated) {
         activity.ltmCurator.ltmOperation("update", args.slug)
       }
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false, entryUpdated }
+      const result: ConsolidationToolResult = { 
+        output: toolResult.output, 
+        done: false, 
+        entryUpdated,
+        slug: args.slug,
+      }
       results.set(toolCallId, result)
       return result.output
     },
@@ -235,7 +250,12 @@ function buildConsolidationTools(
       if (entryUpdated) {
         activity.ltmCurator.ltmOperation("update", args.slug, "surgical edit")
       }
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false, entryUpdated }
+      const result: ConsolidationToolResult = { 
+        output: toolResult.output, 
+        done: false, 
+        entryUpdated,
+        slug: args.slug,
+      }
       results.set(toolCallId, result)
       return result.output
     },
@@ -250,7 +270,12 @@ function buildConsolidationTools(
       if (entryUpdated) {
         activity.ltmCurator.ltmOperation("reparent", args.slug, `→ ${args.newParentSlug ?? "root"}`)
       }
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false, entryUpdated }
+      const result: ConsolidationToolResult = { 
+        output: toolResult.output, 
+        done: false, 
+        entryUpdated,
+        slug: args.slug,
+      }
       results.set(toolCallId, result)
       return result.output
     },
@@ -265,7 +290,12 @@ function buildConsolidationTools(
       if (entryUpdated) {
         activity.ltmCurator.ltmOperation("rename", args.slug, `→ ${args.newSlug}`)
       }
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false, entryUpdated }
+      const result: ConsolidationToolResult = { 
+        output: toolResult.output, 
+        done: false, 
+        entryUpdated,
+        slug: args.slug,
+      }
       results.set(toolCallId, result)
       return result.output
     },
@@ -280,7 +310,12 @@ function buildConsolidationTools(
       if (entryArchived) {
         activity.ltmCurator.ltmOperation("archive", args.slug)
       }
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false, entryArchived }
+      const result: ConsolidationToolResult = { 
+        output: toolResult.output, 
+        done: false, 
+        entryArchived,
+        slug: args.slug,
+      }
       results.set(toolCallId, result)
       return result.output
     },
@@ -583,6 +618,7 @@ export async function runConsolidation(
     entriesUpdated: 0,
     entriesArchived: 0,
     summary: "",
+    details: [],
     usage: { inputTokens: 0, outputTokens: 0 },
   }
 
@@ -639,12 +675,21 @@ export async function runConsolidation(
       const toolResult = getLastResult(toolCallId)
       if (toolResult?.entryCreated) {
         result.entriesCreated++
+        if (toolResult.slug) {
+          result.details.push(`Created [[${toolResult.slug}]]${toolResult.title ? ` - ${toolResult.title}` : ""}`)
+        }
       }
       if (toolResult?.entryUpdated) {
         result.entriesUpdated++
+        if (toolResult.slug) {
+          result.details.push(`Updated [[${toolResult.slug}]]`)
+        }
       }
       if (toolResult?.entryArchived) {
         result.entriesArchived++
+        if (toolResult.slug) {
+          result.details.push(`Archived [[${toolResult.slug}]]`)
+        }
       }
       if (toolResult?.summary) {
         result.summary = toolResult.summary

@@ -49,6 +49,106 @@ const log = Log.create({ service: "agent" })
 const MAX_TURNS = 50
 
 /**
+ * Surface any pending background reports to temporal storage.
+ * 
+ * Background workers (LTM curator, distillation) file reports that get
+ * surfaced to the main agent at the start of the next turn. This makes
+ * the memory system visible to the agent.
+ */
+async function surfaceBackgroundReports(storage: Storage): Promise<void> {
+  const reports = await storage.background.getUnsurfaced()
+  if (reports.length === 0) return
+  
+  log.info("surfacing background reports", { count: reports.length })
+  
+  for (const report of reports) {
+    const toolCallId = Identifier.ascending("toolcall")
+    
+    // Append tool call
+    await storage.temporal.appendMessage({
+      id: Identifier.ascending("message"),
+      type: "tool_call",
+      content: JSON.stringify({
+        name: "background_activity",
+        args: { subsystem: report.subsystem },
+        toolCallId,
+      }),
+      tokenEstimate: 20,
+      createdAt: report.createdAt,
+    })
+    
+    // Format the report content
+    const reportContent = formatBackgroundReport(report.subsystem, report.report)
+    
+    // Append tool result
+    await storage.temporal.appendMessage({
+      id: Identifier.ascending("message"),
+      type: "tool_result",
+      content: JSON.stringify({
+        toolCallId,
+        result: reportContent,
+      }),
+      tokenEstimate: estimateTokens(reportContent),
+      createdAt: report.createdAt,
+    })
+    
+    // Mark as surfaced
+    await storage.background.markSurfaced(report.id)
+  }
+}
+
+/**
+ * Format a background report for display to the agent.
+ */
+function formatBackgroundReport(subsystem: string, report: Record<string, unknown>): string {
+  switch (subsystem) {
+    case "ltm_curator": {
+      const r = report as {
+        entriesCreated?: number
+        entriesUpdated?: number
+        entriesArchived?: number
+        details?: string[]
+      }
+      const lines = ["I organized my knowledge after our last conversation:"]
+      if (r.entriesCreated) lines.push(`- Created ${r.entriesCreated} new entries`)
+      if (r.entriesUpdated) lines.push(`- Updated ${r.entriesUpdated} existing entries`)
+      if (r.entriesArchived) lines.push(`- Archived ${r.entriesArchived} outdated entries`)
+      if (r.details && r.details.length > 0) {
+        lines.push("")
+        lines.push(...r.details.map(d => `- ${d}`))
+      }
+      return lines.join("\n")
+    }
+    
+    case "distillation": {
+      const r = report as {
+        tokensBefore?: number
+        tokensAfter?: number
+        distillationsCreated?: number
+        retained?: string[]
+      }
+      const lines = ["I compressed my working memory:"]
+      if (r.tokensBefore && r.tokensAfter) {
+        const saved = r.tokensBefore - r.tokensAfter
+        lines.push(`- Reduced from ${r.tokensBefore.toLocaleString()} to ${r.tokensAfter.toLocaleString()} tokens (saved ${saved.toLocaleString()})`)
+      }
+      if (r.distillationsCreated) {
+        lines.push(`- Created ${r.distillationsCreated} distillation${r.distillationsCreated > 1 ? "s" : ""}`)
+      }
+      if (r.retained && r.retained.length > 0) {
+        lines.push("")
+        lines.push("Key information retained:")
+        lines.push(...r.retained.map(item => `- ${item}`))
+      }
+      return lines.join("\n")
+    }
+    
+    default:
+      return `Background activity from ${subsystem}:\n${JSON.stringify(report, null, 2)}`
+  }
+}
+
+/**
  * Summarize a tool result for activity logging.
  * Provides a human-readable summary without overwhelming detail.
  */
@@ -441,6 +541,10 @@ export async function runAgent(
 
   // Initialize MCP servers (loads config and connects)
   await initializeMcp()
+
+  // Surface any pending background reports (LTM curator, distillation)
+  // This makes the memory system visible to the agent
+  await surfaceBackgroundReports(storage)
 
   // Pre-turn compaction gate: ensure we're not overflowing before starting
   const config = Config.get()

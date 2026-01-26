@@ -130,6 +130,28 @@ export const workers = sqliteTable("workers", {
 })
 
 // ─────────────────────────────────────────────────────────────────
+// Background Reports - ambient reports from background workers
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Background reports filed by workers (LTM curator, distillation, etc.)
+ * that get surfaced to the main agent at the start of the next turn.
+ */
+export const backgroundReports = sqliteTable(
+  "background_reports",
+  {
+    id: text("id").primaryKey(),
+    createdAt: text("created_at").notNull(),
+    subsystem: text("subsystem").notNull(), // 'ltm_curator' | 'distillation' | etc.
+    report: text("report").notNull(), // JSON report content
+    surfacedAt: text("surfaced_at"), // NULL until shown to main agent
+  },
+  (table) => [
+    index("idx_background_reports_unsurfaced").on(table.surfacedAt),
+  ],
+)
+
+// ─────────────────────────────────────────────────────────────────
 // Type exports for use in storage implementations
 // ─────────────────────────────────────────────────────────────────
 
@@ -147,3 +169,6 @@ export type LTMEntryInsert = typeof ltmEntries.$inferInsert
 
 export type Worker = typeof workers.$inferSelect
 export type WorkerInsert = typeof workers.$inferInsert
+
+export type BackgroundReportRow = typeof backgroundReports.$inferSelect
+export type BackgroundReportInsert = typeof backgroundReports.$inferInsert
