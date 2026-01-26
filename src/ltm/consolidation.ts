@@ -405,9 +405,9 @@ function buildConsolidationTools(
 
   // finish_consolidation - Signal completion (consolidation-specific)
   tools.finish_consolidation = tool({
-    description: "Call this when you have finished curating the knowledge base. Always call this to complete the task.",
+    description: "Call this when you have finished curating the knowledge base. Write a contextual summary for your future self.",
     parameters: z.object({
-      summary: z.string().describe("Brief summary of what you did: entries created/updated, research performed, organization changes, etc."),
+      summary: z.string().describe("A note to your future self: what did you capture and why does it matter? Reference entries with [[slug]] syntax. Example: 'Captured the bloom filter insights in [[bloom-filter-overview]]. Archived X system workarounds since it's decommissioned.'"),
     }),
     execute: async ({ summary }, { toolCallId }) => {
       const result: ConsolidationToolResult = { output: "Curation complete", done: true, summary }
@@ -595,7 +595,20 @@ Review these entries periodically. Are they accurate? Complete? Do they reflect 
 1. **First**: Capture any insights from the recent conversation (this is the priority)
 2. **Then**: Look at your knowledge base - is it serving you well? Improve it.
 3. **Check**: Are /identity and /behavior current? Update them if you've learned something new.
-4. **Finally**: Call \`finish_consolidation\` with a summary of what you did
+4. **Finally**: Call \`finish_consolidation\` with a contextual summary
+
+### Writing Your Summary
+
+When you call \`finish_consolidation\`, write a brief note to your future self explaining what you captured and why it matters. This is a dialog between your subconscious (the curator) and your conscious self (the main agent).
+
+**Good summaries** explain the WHAT and WHY:
+- "Captured the insights on probabilistic filtering in [[bloom-filter-overview]]. Also archived the X system workarounds since it's been decommissioned."
+- "Updated [[user-preferences]] with the new testing philosophy - run tests before committing. Created [[cast-integration]] to document the engine abstraction pattern."
+- "Reorganized the codebase knowledge - moved protocol docs under [[miriad-code/protocol]] and cross-linked with [[memory-system]]."
+
+**Avoid mechanical summaries**:
+- ✗ "Created 2 entries, updated 1 entry"
+- ✗ "Finished curation"
 
 Be proactive! This is YOUR knowledge base. Make it useful.
 `

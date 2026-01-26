@@ -25,6 +25,8 @@ export interface DistillationToolResult {
   output: string
   done: boolean
   distillationCreated: boolean
+  /** Contextual summary when finishing (for background reports) */
+  summary?: string
 }
 
 /**
@@ -204,27 +206,29 @@ export function buildCreateDistillationTool(
 /**
  * Build the finish_distillation tool.
  *
- * This is a simple loop terminator - signals that distillation is complete.
+ * Signals that distillation is complete and provides a contextual summary
+ * for the background report.
  */
 export function buildFinishDistillationTool(
   results: Map<string, DistillationToolResult>,
 ): CoreTool {
   return tool({
     description:
-      "Signal that working memory optimization is complete. Call when you've distilled enough or no more optimization is beneficial.",
+      "Signal that working memory optimization is complete. Write a contextual summary for your future self explaining what you compressed and what you retained.",
     parameters: z.object({
-      reason: z
+      summary: z
         .string()
         .describe(
-          "Brief explanation (e.g., 'reached target', 'recent content needs detail for ongoing work')",
+          "A note to your future self: what did you compress and what key information did you retain? Example: 'Combined the three debugging sessions into one distillation - retained the key insight about the race condition and the fix in src/agent/loop.ts.'",
         ),
     }),
-    execute: async ({ reason }, { toolCallId }) => {
-      log.info("distillation finished", { reason })
+    execute: async ({ summary }, { toolCallId }) => {
+      log.info("distillation finished", { summary })
       const result: DistillationToolResult = {
-        output: `Distillation complete: ${reason}`,
+        output: `Distillation complete`,
         done: true,
         distillationCreated: false,
+        summary,
       }
       results.set(toolCallId, result)
       return result.output

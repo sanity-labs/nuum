@@ -51,6 +51,8 @@ export interface CompactionResult {
   tokensAfter: number
   /** Number of agent turns taken */
   turnsUsed: number
+  /** Contextual summary from the agent (for background reports) */
+  summary?: string
   /** Token usage for the agent */
   usage: {
     inputTokens: number
@@ -153,6 +155,19 @@ For each distillation, call **create_distillation** with:
    - Keep these concrete and referenceable
 
 Call **finish_distillation** when you've optimized enough or no more distillation is beneficial.
+
+### Writing Your Summary
+
+When you call \`finish_distillation\`, write a brief note to your future self explaining what you compressed and what you retained. This is a dialog between your subconscious (the compactor) and your conscious self (the main agent).
+
+**Good summaries** explain the WHAT and WHY:
+- "Combined the three debugging sessions into one distillation - retained the key insight about the race condition and the fix in src/agent/loop.ts."
+- "Distilled the API refactoring work, keeping all the endpoint paths and the decision to use REST over GraphQL."
+- "Compressed the deployment troubleshooting - kept the final working config and the gotcha about environment variables."
+
+**Avoid mechanical summaries**:
+- ✗ "Reached target"
+- ✗ "Created 3 distillations"
 
 **Remember:** You're optimizing your own working memory. Keep what helps you act with precision.
 `
@@ -309,6 +324,10 @@ export async function runCompaction(
           const toolResult = getLastResult(toolCallId)
           if (toolResult?.distillationCreated) {
             result.distillationsCreated++
+          }
+          // Capture summary from finish_distillation
+          if (toolResult?.summary) {
+            result.summary = toolResult.summary
           }
         },
       })

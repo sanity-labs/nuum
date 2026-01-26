@@ -99,6 +99,10 @@ async function surfaceBackgroundReports(storage: Storage): Promise<void> {
 
 /**
  * Format a background report for display to the agent.
+ * 
+ * The report should read like a note from your past self explaining what
+ * happened while you were away. The summary is the primary content - it's
+ * a contextual narrative written by the background worker.
  */
 function formatBackgroundReport(subsystem: string, report: Record<string, unknown>): string {
   switch (subsystem) {
@@ -108,8 +112,16 @@ function formatBackgroundReport(subsystem: string, report: Record<string, unknow
         entriesUpdated?: number
         entriesArchived?: number
         details?: string[]
+        summary?: string
       }
-      const lines = ["I organized my knowledge after our last conversation:"]
+      
+      // If we have a narrative summary, use it as the primary content
+      if (r.summary) {
+        return `[Knowledge Curator] ${r.summary}`
+      }
+      
+      // Fallback to mechanical format if no summary
+      const lines = ["[Knowledge Curator] I organized my knowledge:"]
       if (r.entriesCreated) lines.push(`- Created ${r.entriesCreated} new entries`)
       if (r.entriesUpdated) lines.push(`- Updated ${r.entriesUpdated} existing entries`)
       if (r.entriesArchived) lines.push(`- Archived ${r.entriesArchived} outdated entries`)
@@ -125,9 +137,19 @@ function formatBackgroundReport(subsystem: string, report: Record<string, unknow
         tokensBefore?: number
         tokensAfter?: number
         distillationsCreated?: number
-        retained?: string[]
+        summary?: string
       }
-      const lines = ["I compressed my working memory:"]
+      
+      // If we have a narrative summary, use it as the primary content
+      if (r.summary) {
+        const tokenInfo = r.tokensBefore && r.tokensAfter 
+          ? ` (${r.tokensBefore.toLocaleString()} → ${r.tokensAfter.toLocaleString()} tokens)`
+          : ""
+        return `[Memory Compaction]${tokenInfo} ${r.summary}`
+      }
+      
+      // Fallback to mechanical format if no summary
+      const lines = ["[Memory Compaction] I compressed my working memory:"]
       if (r.tokensBefore && r.tokensAfter) {
         const saved = r.tokensBefore - r.tokensAfter
         lines.push(`- Reduced from ${r.tokensBefore.toLocaleString()} to ${r.tokensAfter.toLocaleString()} tokens (saved ${saved.toLocaleString()})`)
@@ -135,16 +157,11 @@ function formatBackgroundReport(subsystem: string, report: Record<string, unknow
       if (r.distillationsCreated) {
         lines.push(`- Created ${r.distillationsCreated} distillation${r.distillationsCreated > 1 ? "s" : ""}`)
       }
-      if (r.retained && r.retained.length > 0) {
-        lines.push("")
-        lines.push("Key information retained:")
-        lines.push(...r.retained.map(item => `- ${item}`))
-      }
       return lines.join("\n")
     }
     
     default:
-      return `Background activity from ${subsystem}:\n${JSON.stringify(report, null, 2)}`
+      return `[${subsystem}] ${JSON.stringify(report, null, 2)}`
   }
 }
 

@@ -146,6 +146,7 @@ async function runLTMConsolidation(storage: Storage): Promise<ConsolidationResul
             entriesUpdated: result.entriesUpdated,
             entriesArchived: result.entriesArchived,
             details: result.details || [],
+            summary: result.summary, // Contextual narrative from the curator
           },
         })
       } else {
@@ -200,6 +201,7 @@ async function runDistillation(
           tokensBefore: result.tokensBefore,
           tokensAfter: result.tokensAfter,
           distillationsCreated: result.distillationsCreated,
+          summary: result.summary, // Contextual narrative from the distillation agent
         },
       })
     }
