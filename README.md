@@ -1,82 +1,198 @@
 # Nuum
 
-An AI coding agent with continuous memory — infinite context across sessions.
+An AI coding agent with **infinite memory** — continuous context across sessions.
 
 *Nuum* — from "continuum" — maintains persistent memory across conversations, learning your codebase, preferences, and decisions over time.
 
-## Design Philosophy
-
-Nuum is **optimized for embedding**. While it can run standalone, it's designed to be integrated into host applications, IDEs, and orchestration platforms via a simple **NDJSON-over-stdio** protocol.
-
-- **Stateless process, stateful memory** — The process can restart anytime; all state lives in SQLite
-- **Simple wire protocol** — JSON messages over stdin/stdout, easy to integrate from any language
-- **Mid-turn injection** — Send corrections while the agent is working; they're injected into the conversation
-- **Persistent identity** — One database = one agent with continuous memory forever
-
-See [docs/protocol.md](docs/protocol.md) for the full wire protocol specification.
-
-## Installation
+## Quick Start
 
 ```bash
-# Using bunx (recommended - runs in Bun, fast)
-bunx @miriad-systems/nuum
+# Install and run interactively
+bunx @miriad-systems/nuum --repl
 
-# Using npx (runs in Node.js)
-npx @miriad-systems/nuum
+# Or with npx
+npx @miriad-systems/nuum --repl
 ```
 
-## Usage
+Set your API key:
+```bash
+export ANTHROPIC_API_KEY=your-key-here
+```
 
-### Embedded Mode (for host applications)
+That's it. Start chatting. Your agent remembers everything.
+
+### REPL Commands
+
+```
+/help     Show available commands
+/inspect  Show memory statistics
+/dump     Show full system prompt
+/clear    Clear conversation (fresh session)
+/quit     Exit
+```
+
+### Other Modes
+
+```bash
+nuum -p "What files are in src/"     # Single prompt
+nuum --inspect                        # View memory stats
+nuum --db ./project.db --repl         # Custom database
+```
+
+---
+
+## Embedding in Applications
+
+Nuum is designed to be **embedded**. While it runs standalone, its primary use case is integration into host applications, IDEs, and orchestration platforms.
 
 ```bash
 nuum --stdio              # NDJSON protocol over stdin/stdout
 nuum --stdio --db ./my.db # With custom database
 ```
 
-Send JSON messages to stdin, receive responses on stdout:
+**Key properties:**
+- **Stateless process, stateful memory** — Process can restart anytime; all state lives in SQLite
+- **Simple wire protocol** — JSON messages over stdin/stdout, easy to integrate from any language
+- **Mid-turn injection** — Send corrections while the agent is working
+- **Persistent identity** — One database = one agent with continuous memory
 
-```json
-→ {"type":"user","message":{"role":"user","content":"Hello"}}
-← {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello! How can I help?"}]},"session_id":"nuum_01JD..."}
-← {"type":"result","subtype":"success","duration_ms":800,"session_id":"nuum_01JD..."}
-```
+See **[docs/protocol.md](docs/protocol.md)** for the full wire protocol specification.
 
-### Interactive Mode
+---
 
-```bash
-nuum                      # Start interactive session
-nuum --db ./my-project.db # With specific database
-```
+## Memory Architecture
 
-### Batch Mode
-
-```bash
-nuum -p "What is 2+2?"
-nuum -p "Read src/index.ts and explain what it does"
-nuum -p "Refactor the auth module" --verbose
-```
-
-### CLI Reference
+Nuum has a three-tier memory system that mirrors human cognition:
 
 ```
-nuum                          Start interactive session
-nuum --stdio                  Embedded mode (NDJSON protocol)
-nuum -p "prompt"              Batch mode
-nuum --help                   Show help
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              WORKING MEMORY                                  │
+│                         (Temporal Message Store)                             │
+│                                                                              │
+│  Recent messages live here in full detail. As context grows, older          │
+│  content is recursively distilled — compressed while retaining what         │
+│  matters for effective action.                                              │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ msg msg msg msg msg msg msg msg msg msg msg msg msg msg msg msg ... │    │
+│  │  │   │   │   │   │   │   │   │   │   │   │   │   │   │   │   │      │    │
+│  │  └───┴───┴───┴───┘   └───┴───┴───┘   └───┴───┴───┘   │   │   │      │    │
+│  │         │                   │               │         │   │   │      │    │
+│  │    [distill-1]         [distill-2]    [distill-3]    │   │   │      │    │
+│  │         │                   │               │         │   │   │      │    │
+│  │         └───────────────────┴───────────────┘         │   │   │      │    │
+│  │                             │                         │   │   │      │    │
+│  │                      [distill-4]                      │   │   │      │    │
+│  │                             │                         │   │   │      │    │
+│  │                             └─────────────────────────┘   │   │      │    │
+│  │                                         │                 │   │      │    │
+│  │                                   [distill-5]        [recent msgs]   │    │
+│  │                                                                      │    │
+│  │  Older ◄──────────────────────────────────────────────────► Newer   │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  The agent sees: [distill-5] + [recent messages]                            │
+│  55x compression ratio achieved (1.3M tokens → 25k effective)               │
+└─────────────────────────────────────────────────────────────────────────────┘
 
-Options:
-  -p, --prompt <text>   Run with a prompt (batch mode)
-  -v, --verbose         Show memory state and debug output
-      --stdio           NDJSON protocol mode for embedding
-      --db <path>       SQLite database path (default: ./agent.db)
-      --format <type>   Output format: text or json (default: text)
-  -h, --help            Show help message
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              PRESENT STATE                                   │
+│                                                                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────────────┐      │
+│  │   Mission   │  │   Status    │  │            Tasks                │      │
+│  │             │  │             │  │  ☑ Setup repository             │      │
+│  │  "Build     │  │ "reviewing  │  │  ☑ Implement auth               │      │
+│  │   auth      │  │  PR #42"    │  │  ☐ Write tests                  │      │
+│  │   system"   │  │             │  │  ☐ Deploy to staging            │      │
+│  └─────────────┘  └─────────────┘  └─────────────────────────────────┘      │
+│                                                                              │
+│  Agent-managed working state. Updated as work progresses.                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            LONG-TERM MEMORY                                  │
+│                          (Knowledge Base Tree)                               │
+│                                                                              │
+│  /identity ─────────────── "Who I am, my nature and relationships"          │
+│  /behavior ─────────────── "How I should operate, user preferences"         │
+│  /miriad-code                                                                │
+│    ├── /cast-integration ─ "CAST/Miriad integration notes"                  │
+│    ├── /memory                                                               │
+│    │     └── /background-reports-system                                      │
+│    ├── /anthropic-prompt-caching                                             │
+│    └── /distillation-improvements-jan2026                                    │
+│  /mcp                                                                        │
+│    ├── /mcp-implementation                                                   │
+│    └── /mcp-config-resolution                                                │
+│                                                                              │
+│  Hierarchical knowledge that persists forever. Background workers           │
+│  extract important information from conversations and organize it here.     │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Recursive Distillation
+
+The distillation system is **not summarization** — it's operational intelligence extraction:
+
+**RETAIN** (actionable intelligence):
+- File paths and what they contain
+- Decisions made and WHY (rationale matters)
+- User preferences and corrections
+- Specific values: URLs, configs, commands
+- Errors and how they were resolved
+
+**EXCISE** (noise):
+- Back-and-forth debugging that led nowhere
+- Missteps and corrections (keep only final approach)
+- Verbose tool outputs
+- Narrative filler ("Let me check...")
+- Casual chatter and acknowledgments
+
+Distillations are recursive — older distillations get distilled again, creating a fractal compression where ancient history becomes highly compressed while recent work stays detailed.
+
+### Long-Term Memory Curation
+
+A background worker (the **LTM Curator**) watches conversations and:
+
+1. **CAPTURES** important information into knowledge entries
+2. **STRENGTHENS** entries by researching and adding context
+3. **CURATES** the knowledge tree structure
+
+The curator has access to web search, file reading, and the full knowledge base. It works autonomously between turns, filing reports that the main agent sees on the next interaction.
+
+### Reflection
+
+When the agent needs to recall something specific — a file path, a decision, a value from weeks ago — it uses the **reflect** tool:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              REFLECTION                                      │
+│                                                                              │
+│   Main Agent                         Reflection Sub-Agent                    │
+│       │                                      │                               │
+│       │  "What was the auth bug fix?"        │                               │
+│       │ ────────────────────────────────────►│                               │
+│       │                                      │                               │
+│       │                          ┌───────────┴───────────┐                   │
+│       │                          │  Search FTS index     │                   │
+│       │                          │  Search LTM entries   │                   │
+│       │                          │  Read relevant docs   │                   │
+│       │                          │  Synthesize answer    │                   │
+│       │                          └───────────┬───────────┘                   │
+│       │                                      │                               │
+│       │  "The auth bug was in session.ts,    │                               │
+│       │   line 42. Fixed by adding null      │                               │
+│       │   check. Committed in abc123."       │                               │
+│       │ ◄────────────────────────────────────│                               │
+│       │                                      │                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Reflection searches the full conversation history (via FTS5 full-text search) and the knowledge base, then synthesizes an answer. It's like the agent asking its own memory system a question.
+
+---
 
 ## Configuration
-
-Only `ANTHROPIC_API_KEY` is required:
 
 ```bash
 # Required
@@ -89,16 +205,7 @@ AGENT_MODEL_FAST=claude-haiku-4-5-20251001
 AGENT_DB=./agent.db
 ```
 
-## How Memory Works
-
-### Temporal Memory (Working Memory)
-Every message is logged chronologically. As the conversation grows, older content is **distilled** — compressed to retain actionable intelligence: file paths, decisions and rationale, user preferences, specific values.
-
-### Present State
-Tracks the current mission, status, and task list. Updated by the agent as work progresses. Always visible in context.
-
-### Long-Term Memory (LTM)
-A hierarchical knowledge base that persists across sessions. Contains identity, behavioral guidelines, and accumulated knowledge. Background workers consolidate important information from conversations into LTM.
+---
 
 ## Development
 
@@ -109,6 +216,8 @@ bun run typecheck    # Type check
 bun test             # Run tests
 bun run build        # Build for distribution
 ```
+
+---
 
 ## Acknowledgments
 
@@ -125,6 +234,8 @@ Infrastructure adapted from [OpenCode](https://github.com/anthropics/opencode):
 - Tool definition patterns
 - Permission system
 - Process management
+
+---
 
 ## License
 
