@@ -1,6 +1,6 @@
 # Nuum
 
-An AI coding agent with **infinite memory** — continuous context across sessions.
+An AI coding agent with **"infinite memory"** — continuous context across sessions.
 
 *Nuum* — from "continuum" — maintains persistent memory across conversations, learning your codebase, preferences, and decisions over time.
 
