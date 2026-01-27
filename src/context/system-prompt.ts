@@ -88,6 +88,10 @@ Use reflect when:
 - You need a specific value or path from earlier work
 - The user asks "remember when..." or "what did we decide about..."
 - You want to verify your memory before acting
+
+## Message Prefixes
+
+Messages in your history have automatic prefixes like \`[2026-01-26 15:30 id:msg_xxx]\` showing timestamp and ID. These are added by the system for internal tracking - you don't need to reference or echo them. Just read the message content normally.
 `
 
   // Add CAST-provided system prompt overlay (if any)
