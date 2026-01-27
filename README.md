@@ -166,7 +166,7 @@ Nuum has a three-tier memory system that mirrors human cognition.
 
 ### Recursive Distillation
 
-**No pause for compaction.** Unlike most coding agents that stop mid-conversation to "compact memory," Nuum's distillation runs in the background while you work. You never wait for memory management — it happens invisibly between turns.
+**No pause for compaction.** Unlike most coding agents that stop mid-conversation to "compact memory," Nuum's distillation runs concurrently while you work. You never wait for memory management — it happens invisibly in the background.
 
 The distillation system is **not summarization** — it's operational intelligence extraction:
 
