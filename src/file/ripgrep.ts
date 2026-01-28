@@ -13,6 +13,7 @@ import { spawn } from "child_process"
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
+import { getSpawnEnvironment } from "../context/environment"
 
 export namespace Ripgrep {
   let cachedPath: string | null = null
@@ -89,6 +90,7 @@ export namespace Ripgrep {
     const proc = spawn(rgPath, args, {
       cwd: input.cwd,
       stdio: ["ignore", "pipe", "ignore"],
+      env: getSpawnEnvironment(),
     })
 
     let buffer = ""

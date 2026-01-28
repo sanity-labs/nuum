@@ -12,6 +12,7 @@ import * as path from "path"
 import { spawn } from "child_process"
 import { Tool } from "./tool"
 import { Ripgrep } from "../file/ripgrep"
+import { getSpawnEnvironment } from "../context/environment"
 
 const MAX_LINE_LENGTH = 2000
 const MAX_RESULTS = 100
@@ -86,6 +87,7 @@ Respects .gitignore patterns.`,
     // Run ripgrep
     const proc = spawn(rgPath, args, {
       stdio: ["ignore", "pipe", "pipe"],
+      env: getSpawnEnvironment(),
     })
 
     let output = ""

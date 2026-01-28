@@ -27,6 +27,7 @@ import { Log } from "../util/log"
 import { Config } from "../config"
 import { Mcp } from "../mcp"
 import { Identifier } from "../id"
+import { setEnvironment } from "../context/environment"
 
 // Get the model ID for the reasoning tier (main agent)
 function getModelId(): string {
@@ -213,6 +214,18 @@ export class Server {
     // Priority: message config > env var > file
     if (userMessage.mcp_servers !== undefined) {
       await this.reinitializeMcpWithOverride(userMessage.mcp_servers)
+    }
+
+    // If CAST provided environment, apply it for this turn
+    // Environment is used by child process spawns (bash, grep, etc.)
+    if (userMessage.environment !== undefined) {
+      setEnvironment(userMessage.environment)
+      log.info("applied environment from message", { 
+        count: Object.keys(userMessage.environment).length 
+      })
+    } else {
+      // Clear environment if not provided (don't carry over from previous turn)
+      setEnvironment({})
     }
 
     this.currentTurn = {

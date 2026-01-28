@@ -47,6 +47,8 @@ export const UserMessageSchema = z.object({
   system_prompt: z.string().optional(),
   /** CAST-provided MCP server config (takes precedence over env/file config) */
   mcp_servers: z.record(z.unknown()).optional(),
+  /** CAST-provided environment variables (applied to child process spawns) */
+  environment: z.record(z.string()).optional(),
 })
 
 export const ControlRequestSchema = z.object({

@@ -12,6 +12,7 @@ import { spawn } from "child_process"
 import { Tool } from "./tool"
 import { Shell } from "../shell"
 import { Log } from "../util/log"
+import { getSpawnEnvironment } from "../context/environment"
 
 const MAX_OUTPUT_LENGTH = 50_000
 const DEFAULT_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutes
@@ -85,7 +86,7 @@ Use this tool for:
     const proc = spawn(params.command, {
       shell,
       cwd,
-      env: { ...process.env },
+      env: getSpawnEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     })
