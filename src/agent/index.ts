@@ -34,8 +34,10 @@ import {
   LTMSearchTool,
   LTMReadTool,
   ReflectTool,
+  ResearchTool,
   type LTMToolContext,
   type ReflectToolContext,
+  type ResearchToolContext,
 } from "../tool"
 import { runAgentLoop, AgentLoopCancelledError } from "./loop"
 import { buildAgentContext } from "../context"
@@ -279,6 +281,7 @@ interface ToolContextFactory {
   createContext(callId: string): Tool.Context
   createLTMContext(callId: string): Tool.Context & { extra: LTMToolContext }
   createReflectContext(callId: string): Tool.Context & { extra: ReflectToolContext }
+  createResearchContext(callId: string): Tool.Context & { extra: ResearchToolContext }
 }
 
 function createToolContextFactory(
@@ -316,6 +319,16 @@ function createToolContextFactory(
         ...baseContext,
         callID: callId,
       }) as Tool.Context & { extra: ReflectToolContext }
+      ctx.extra = {
+        storage,
+      }
+      return ctx
+    },
+    createResearchContext(callId: string): Tool.Context & { extra: ResearchToolContext } {
+      const ctx = Tool.createContext({
+        ...baseContext,
+        callID: callId,
+      }) as Tool.Context & { extra: ResearchToolContext }
       ctx.extra = {
         storage,
       }
@@ -495,6 +508,14 @@ function buildTools(
     parameters: ReflectTool.definition.parameters,
     execute: async (args, { toolCallId }) =>
       safeExecute("reflect", () => ReflectTool.definition.execute(args, factory.createReflectContext(toolCallId))),
+  })
+
+  // Research tool - investigate topics and build LTM knowledge
+  tools.research = tool({
+    description: ResearchTool.definition.description,
+    parameters: ResearchTool.definition.parameters,
+    execute: async (args, { toolCallId }) =>
+      safeExecute("research", () => ResearchTool.definition.execute(args, factory.createResearchContext(toolCallId))),
   })
 
   return tools

@@ -13,6 +13,7 @@ export { GrepTool, type GrepMetadata } from "./grep"
 export { WebSearchTool, type WebSearchMetadata, type SearchResult } from "./web-search"
 export { WebFetchTool, type WebFetchMetadata } from "./web-fetch"
 export { ReflectTool, type ReflectMetadata, type ReflectToolContext } from "./reflect"
+export { ResearchTool, type ResearchMetadata, type ResearchToolContext } from "./research"
 export { McpStatusTool, type McpStatusMetadata } from "./mcp-status"
 export {
   LTMGlobTool,
@@ -42,11 +43,5 @@ export {
   type DistillationToolContext,
 } from "./distillation"
 
-// Reflection agent tools
-export {
-  buildReflectionSearchTools,
-  buildSearchMessagesTool,
-  buildGetMessageTool,
-  buildFinishReflectionTool,
-  type ReflectionSearchContext,
-} from "./reflection-search"
+// Reflection agent tools (now in src/reflection/tools.ts)
+export { buildReflectionTools, type ReflectionToolContext } from "../reflection/tools"

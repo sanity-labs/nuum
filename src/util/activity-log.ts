@@ -15,6 +15,7 @@ export type WorkerType =
   | "ltm-curator" 
   | "distillation"
   | "reflection"
+  | "research"
   | "server"
   | "mcp"
 
@@ -208,6 +209,7 @@ export const activity = {
   ltmCurator: new ActivityLog("ltm-curator"),
   distillation: new ActivityLog("distillation"),
   reflection: new ActivityLog("reflection"),
+  research: new ActivityLog("research"),
   server: new ActivityLog("server"),
   mcp: new ActivityLog("mcp"),
 }

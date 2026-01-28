@@ -26,7 +26,7 @@ export class ConflictError extends Error {
   }
 }
 
-export type AgentType = "main" | "ltm-consolidate" | "ltm-reflect"
+export type AgentType = "main" | "ltm-consolidate" | "ltm-reflect" | "research"
 
 export interface LTMCreateInput {
   slug: string

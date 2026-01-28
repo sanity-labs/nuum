@@ -1,11 +1,11 @@
 /**
- * Reflection search tools for the reflection agent.
+ * Reflection tools for the reflection agent.
  *
  * These tools are used by the reflection sub-agent to search conversation
  * history and long-term memory when answering questions about past events.
  *
- * - search_messages, get_message: Temporal FTS tools (defined here)
- * - ltm_search, ltm_read, ltm_glob: Reused from ltm.ts
+ * - search_messages, get_message: Temporal FTS tools
+ * - ltm_search, ltm_read, ltm_glob: Reused from ltm tools
  * - finish_reflection: Loop terminator
  */
 
@@ -20,12 +20,12 @@ import {
   LTMSearchTool,
   LTMReadTool,
   type LTMToolContext,
-} from "./index"
+} from "../tool"
 
 /**
- * Context needed to build reflection search tools.
+ * Context needed to build reflection tools.
  */
-export interface ReflectionSearchContext {
+export interface ReflectionToolContext {
   storage: Storage
 }
 
@@ -34,7 +34,7 @@ export interface ReflectionSearchContext {
  *
  * Full-text search on conversation history using FTS5.
  */
-export function buildSearchMessagesTool(ctx: ReflectionSearchContext): CoreTool {
+function buildSearchMessagesTool(ctx: ReflectionToolContext): CoreTool {
   const { storage } = ctx
 
   return tool({
@@ -71,7 +71,7 @@ export function buildSearchMessagesTool(ctx: ReflectionSearchContext): CoreTool 
  *
  * Retrieves a specific message by ID with optional surrounding context.
  */
-export function buildGetMessageTool(ctx: ReflectionSearchContext): CoreTool {
+function buildGetMessageTool(ctx: ReflectionToolContext): CoreTool {
   const { storage } = ctx
 
   return tool({
@@ -110,32 +110,6 @@ export function buildGetMessageTool(ctx: ReflectionSearchContext): CoreTool {
 
       activity.reflection.toolResult("get_message", `${messages.length} messages`)
       return formatted
-    },
-  })
-}
-
-/**
- * Build the finish_reflection tool.
- *
- * Loop terminator that captures the answer to return to the main agent.
- */
-export function buildFinishReflectionTool(
-  setAnswer: (answer: string) => void,
-): CoreTool {
-  return tool({
-    description:
-      "Complete the reflection and return your answer to the main agent.",
-    parameters: z.object({
-      answer: z
-        .string()
-        .describe(
-          "Your answer or research findings. Be specific and include relevant details, quotes, or references.",
-        ),
-    }),
-    execute: async ({ answer }) => {
-      activity.reflection.toolResult("finish_reflection", `${answer.length} chars`)
-      setAnswer(answer)
-      return "Reflection complete."
     },
   })
 }
@@ -185,22 +159,22 @@ function wrapLTMTool(
 }
 
 /**
- * Build all reflection search tools.
+ * Build all reflection tools.
  *
  * Returns the tools and a function to get the answer.
  */
-export function buildReflectionSearchTools(ctx: ReflectionSearchContext): {
+export function buildReflectionTools(ctx: ReflectionToolContext): {
   tools: Record<string, CoreTool>
   getAnswer: () => string | null
 } {
   let answer: string | null = null
 
   const tools: Record<string, CoreTool> = {
-    // Temporal FTS tools (defined in this file)
+    // Temporal FTS tools
     search_messages: buildSearchMessagesTool(ctx),
     get_message: buildGetMessageTool(ctx),
 
-    // LTM tools (reused from ltm.ts with activity logging)
+    // LTM tools (reused with activity logging)
     ltm_search: wrapLTMTool(
       LTMSearchTool,
       "ltm_search",
@@ -221,8 +195,21 @@ export function buildReflectionSearchTools(ctx: ReflectionSearchContext): {
     ),
 
     // Loop terminator
-    finish_reflection: buildFinishReflectionTool((ans) => {
-      answer = ans
+    finish_reflection: tool({
+      description:
+        "Complete the reflection and return your answer to the main agent.",
+      parameters: z.object({
+        answer: z
+          .string()
+          .describe(
+            "Your answer or research findings. Be specific and include relevant details, quotes, or references.",
+          ),
+      }),
+      execute: async ({ answer: ans }) => {
+        activity.reflection.toolResult("finish_reflection", `${ans.length} chars`)
+        answer = ans
+        return "Reflection complete."
+      },
     }),
   }
 

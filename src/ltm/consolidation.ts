@@ -8,63 +8,19 @@
  * 1. CAPTURE - Extract insights from recent conversation
  * 2. STRENGTHEN - Proactively research and verify knowledge in current work area
  * 3. CURATE - Organize, cross-link, prune, and improve the knowledge base
- *
- * Tools available:
- *
- * Knowledge Base:
- * - ltm_glob, ltm_search, ltm_read: Navigate and search
- * - ltm_create, ltm_update, ltm_edit: Create and modify
- * - ltm_reparent, ltm_rename, ltm_archive: Organize
- *
- * Codebase Research:
- * - read: Read files to verify/enrich knowledge
- * - glob: Find files matching patterns
- * - grep: Search file contents
- *
- * Web Research:
- * - web_search: Search the web for information
- * - web_fetch: Read and extract info from a webpage
- *
- * Workflow:
- * - finish_consolidation: Signal completion
  */
 
-import { tool } from "ai"
-import type { CoreMessage, CoreTool } from "ai"
-import { z } from "zod"
 import type { Storage } from "../storage"
 import type { TemporalMessage, LTMEntry } from "../storage/schema"
-import type { AgentType } from "../storage/ltm"
-import { Provider } from "../provider"
 import { Identifier } from "../id"
 import { Log } from "../util/log"
-import { activity } from "../util/activity-log"
-import {
-  Tool,
-  LTMGlobTool,
-  LTMSearchTool,
-  LTMReadTool,
-  LTMCreateTool,
-  LTMUpdateTool,
-  LTMEditTool,
-  LTMReparentTool,
-  LTMRenameTool,
-  LTMArchiveTool,
-  WebSearchTool,
-  WebFetchTool,
-  ReadTool,
-  GlobTool,
-  GrepTool,
-  renderCompactTree,
-  type LTMToolContext,
-} from "../tool"
-import { buildAgentContext } from "../context"
-import { runAgentLoop, stopOnTool } from "../agent/loop"
+import { runSubAgent } from "../sub-agent"
+import { buildConsolidationTools, type ConsolidationToolResult } from "./tools"
+import { renderCompactTree } from "../tool"
 
 const log = Log.create({ service: "consolidation-agent" })
 
 const MAX_CONSOLIDATION_TURNS = 20
-const AGENT_TYPE: AgentType = "ltm-consolidate"
 
 /**
  * Result of a consolidation run.
@@ -121,312 +77,10 @@ export function isConversationNoteworthy(messages: TemporalMessage[]): boolean {
 }
 
 /**
- * Result of a consolidation tool execution.
- */
-interface ConsolidationToolResult {
-  output: string
-  done: boolean
-  entryCreated?: boolean
-  entryUpdated?: boolean
-  entryArchived?: boolean
-  slug?: string
-  title?: string
-  summary?: string
-}
-
-/**
- * Build tools for the consolidation agent with execute callbacks.
- * Uses shared tool definitions from src/tool/ltm.ts.
- */
-function buildConsolidationTools(
-  storage: Storage,
-): {
-  tools: Record<string, CoreTool>
-  getLastResult: (toolCallId: string) => ConsolidationToolResult | undefined
-} {
-  // Track results by toolCallId for the agent loop to access
-  const results = new Map<string, ConsolidationToolResult>()
-
-  // Create LTM context for tool execution
-  const createLTMContext = (toolCallId: string): Tool.Context & { extra: LTMToolContext } => {
-    const ctx = Tool.createContext({
-      sessionID: "consolidation",
-      messageID: "consolidation",
-      callID: toolCallId,
-    })
-    ;(ctx as Tool.Context & { extra: LTMToolContext }).extra = {
-      ltm: storage.ltm,
-      agentType: AGENT_TYPE,
-    }
-    return ctx as Tool.Context & { extra: LTMToolContext }
-  }
-
-  const tools: Record<string, CoreTool> = {}
-
-  // LTM read-only tools (shared definitions)
-  tools.ltm_read = tool({
-    description: LTMReadTool.definition.description,
-    parameters: LTMReadTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMReadTool.definition.execute(args, createLTMContext(toolCallId))
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.ltm_glob = tool({
-    description: LTMGlobTool.definition.description,
-    parameters: LTMGlobTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMGlobTool.definition.execute(args, createLTMContext(toolCallId))
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.ltm_search = tool({
-    description: LTMSearchTool.definition.description,
-    parameters: LTMSearchTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMSearchTool.definition.execute(args, createLTMContext(toolCallId))
-      const matchCount = (toolResult.output.match(/^- \*\*/gm) || []).length
-      activity.ltmCurator.searchResult("ltm_search", matchCount, args.query)
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  // LTM write tools (shared definitions)
-  tools.ltm_create = tool({
-    description: LTMCreateTool.definition.description,
-    parameters: LTMCreateTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMCreateTool.definition.execute(args, createLTMContext(toolCallId))
-      const entryCreated = toolResult.output.startsWith("Created entry:")
-      if (entryCreated) {
-        activity.ltmCurator.ltmOperation("create", args.slug, args.title)
-      }
-      const result: ConsolidationToolResult = { 
-        output: toolResult.output, 
-        done: false, 
-        entryCreated,
-        slug: args.slug,
-        title: args.title,
-      }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.ltm_update = tool({
-    description: LTMUpdateTool.definition.description,
-    parameters: LTMUpdateTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMUpdateTool.definition.execute(args, createLTMContext(toolCallId))
-      const entryUpdated = toolResult.output.startsWith("Updated entry:")
-      if (entryUpdated) {
-        activity.ltmCurator.ltmOperation("update", args.slug)
-      }
-      const result: ConsolidationToolResult = { 
-        output: toolResult.output, 
-        done: false, 
-        entryUpdated,
-        slug: args.slug,
-      }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.ltm_edit = tool({
-    description: LTMEditTool.definition.description,
-    parameters: LTMEditTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMEditTool.definition.execute(args, createLTMContext(toolCallId))
-      const entryUpdated = toolResult.output.startsWith("Edited entry:")
-      if (entryUpdated) {
-        activity.ltmCurator.ltmOperation("update", args.slug, "surgical edit")
-      }
-      const result: ConsolidationToolResult = { 
-        output: toolResult.output, 
-        done: false, 
-        entryUpdated,
-        slug: args.slug,
-      }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.ltm_reparent = tool({
-    description: LTMReparentTool.definition.description,
-    parameters: LTMReparentTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMReparentTool.definition.execute(args, createLTMContext(toolCallId))
-      const entryUpdated = toolResult.output.startsWith("Moved entry:")
-      if (entryUpdated) {
-        activity.ltmCurator.ltmOperation("reparent", args.slug, `→ ${args.newParentSlug ?? "root"}`)
-      }
-      const result: ConsolidationToolResult = { 
-        output: toolResult.output, 
-        done: false, 
-        entryUpdated,
-        slug: args.slug,
-      }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.ltm_rename = tool({
-    description: LTMRenameTool.definition.description,
-    parameters: LTMRenameTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMRenameTool.definition.execute(args, createLTMContext(toolCallId))
-      const entryUpdated = toolResult.output.startsWith("Renamed entry:")
-      if (entryUpdated) {
-        activity.ltmCurator.ltmOperation("rename", args.slug, `→ ${args.newSlug}`)
-      }
-      const result: ConsolidationToolResult = { 
-        output: toolResult.output, 
-        done: false, 
-        entryUpdated,
-        slug: args.slug,
-      }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.ltm_archive = tool({
-    description: LTMArchiveTool.definition.description,
-    parameters: LTMArchiveTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const toolResult = await LTMArchiveTool.definition.execute(args, createLTMContext(toolCallId))
-      const entryArchived = toolResult.output.startsWith("Archived entry:")
-      if (entryArchived) {
-        activity.ltmCurator.ltmOperation("archive", args.slug)
-      }
-      const result: ConsolidationToolResult = { 
-        output: toolResult.output, 
-        done: false, 
-        entryArchived,
-        slug: args.slug,
-      }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  // File system tools for codebase research
-  tools.read = tool({
-    description: ReadTool.definition.description,
-    parameters: ReadTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const ctx = Tool.createContext({
-        sessionID: "consolidation",
-        messageID: "consolidation",
-        callID: toolCallId,
-      })
-      const toolResult = await ReadTool.definition.execute(args, ctx)
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.glob = tool({
-    description: GlobTool.definition.description,
-    parameters: GlobTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const ctx = Tool.createContext({
-        sessionID: "consolidation",
-        messageID: "consolidation",
-        callID: toolCallId,
-      })
-      const toolResult = await GlobTool.definition.execute(args, ctx)
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.grep = tool({
-    description: GrepTool.definition.description,
-    parameters: GrepTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const ctx = Tool.createContext({
-        sessionID: "consolidation",
-        messageID: "consolidation",
-        callID: toolCallId,
-      })
-      const toolResult = await GrepTool.definition.execute(args, ctx)
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  // Web tools for external research
-  tools.web_search = tool({
-    description: WebSearchTool.definition.description,
-    parameters: WebSearchTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const ctx = Tool.createContext({
-        sessionID: "consolidation",
-        messageID: "consolidation", 
-        callID: toolCallId,
-      })
-      const toolResult = await WebSearchTool.definition.execute(args, ctx)
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  tools.web_fetch = tool({
-    description: WebFetchTool.definition.description,
-    parameters: WebFetchTool.definition.parameters,
-    execute: async (args, { toolCallId }) => {
-      const ctx = Tool.createContext({
-        sessionID: "consolidation",
-        messageID: "consolidation",
-        callID: toolCallId,
-      })
-      const toolResult = await WebFetchTool.definition.execute(args, ctx)
-      const result: ConsolidationToolResult = { output: toolResult.output, done: false }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  // finish_consolidation - Signal completion (consolidation-specific)
-  tools.finish_consolidation = tool({
-    description: "Call this when you have finished curating the knowledge base. Write a contextual summary for your future self.",
-    parameters: z.object({
-      summary: z.string().describe("A note to your future self: what did you capture and why does it matter? Reference entries with [[slug]] syntax. Example: 'Captured the bloom filter insights in [[bloom-filter-overview]]. Archived X system workarounds since it's decommissioned.'"),
-    }),
-    execute: async ({ summary }, { toolCallId }) => {
-      const result: ConsolidationToolResult = { output: "Curation complete", done: true, summary }
-      results.set(toolCallId, result)
-      return result.output
-    },
-  })
-
-  return {
-    tools,
-    getLastResult: (toolCallId: string) => results.get(toolCallId),
-  }
-}
-
-/**
  * Build the LTM curation task content.
  * This is added as a user message to trigger the knowledge curation workflow.
  */
-async function buildLTMReviewTurn(
+async function buildLTMReviewPrompt(
   storage: Storage,
   recentlyUpdatedEntries: LTMEntry[],
 ): Promise<string> {
@@ -490,46 +144,6 @@ ${recentlyUpdatedEntries.map(e => `- **${e.slug}**: ${e.title}`).join("\n")}
 - ✓ "Tool pattern: parameters must be defined BEFORE Tool.define() call due to initialization order"
 - ✗ "The config module handles configuration" (too obvious, adds no value)
 
-**When to document code structure:**
-- Complex modules with non-obvious responsibilities
-- Files that interact in subtle ways
-- Patterns that took effort to understand
-- Entry points and key abstractions
-
----
-
-### Curation Tasks (do these!)
-
-**Organize the tree:**
-- Group related entries under parent paths
-- Create small "index" entries that just organize children (this is fine!)
-- A flat list of 20 entries is hard to navigate - a tree is better
-
-Example structure:
-  /miriad-code           <- index entry: "My codebase - architecture and patterns"
-    /protocol            <- NDJSON protocol details
-    /memory-system       <- temporal, LTM, distillation
-  /user                  <- index entry: "Working with Simen"
-    /preferences         <- simplicity over compat, incremental refactoring
-  /integrations          <- index entry: "External systems"
-    /mcp                 <- MCP protocol, config resolution
-
-**Cross-link for findability:**
-- Use [[slug]] syntax to connect related entries
-- Ask: "If I search for X, will I find this?"
-- Index entries can list their children with [[links]]
-
-**Maintain quality:**
-- Combine entries that overlap significantly
-- Split entries that cover too many topics
-- Archive entries that are outdated or wrong
-- Update entries with new information
-
-**Enrich with research:**
-- Use web_search/web_fetch to fact-check or fill gaps
-- Look up documentation for libraries/APIs you reference
-- Verify assumptions about external systems
-
 ---
 
 ### Tools Available
@@ -545,10 +159,6 @@ Example structure:
 - \`ltm_rename(slug, newSlug, version)\` - Change entry slug
 - \`ltm_archive(slug, version)\` - Remove outdated entry
 
-To create a tree:
-1. Create parent first: \`ltm_create("miriad-code", null, "My Codebase", "Index of codebase knowledge...")\`
-2. Create children with parentSlug: \`ltm_create("protocol", "miriad-code", "Protocol", "...")\`
-
 **Codebase Research:**
 - \`read(filePath)\` - Read a file to verify/enrich knowledge
 - \`glob(pattern)\` - Find files matching pattern
@@ -557,12 +167,6 @@ To create a tree:
 **Web Research:**
 - \`web_search(query)\` - Search the web for information
 - \`web_fetch(url, question)\` - Read a webpage and extract info
-
-Use codebase tools to:
-- Verify file paths in entries still exist
-- Check if documented patterns are still accurate
-- Explore related files to build richer documentation
-- Confirm technical details before recording them
 
 ---
 
@@ -578,15 +182,11 @@ This frames everything you do. It's how you understand yourself in relationship 
 - Other agents or entities you interact with
 - Your own nature and capabilities
 
-This is actionable because it helps you form lasting relationships and maintain continuity. Update it as your understanding deepens.
-
 **/behavior** - How you operate
 - User preferences you've learned
 - Working patterns that work well
 - Guidelines for code quality, testing, commits
 - Communication style preferences
-
-Review these entries periodically. Are they accurate? Complete? Do they reflect what you've learned?
 
 ---
 
@@ -599,12 +199,11 @@ Review these entries periodically. Are they accurate? Complete? Do they reflect 
 
 ### Writing Your Summary
 
-When you call \`finish_consolidation\`, write a brief note to your future self explaining what you captured and why it matters. This is a dialog between your subconscious (the curator) and your conscious self (the main agent).
+When you call \`finish_consolidation\`, write a brief note to your future self explaining what you captured and why it matters.
 
 **Good summaries** explain the WHAT and WHY:
 - "Captured the insights on probabilistic filtering in [[bloom-filter-overview]]. Also archived the X system workarounds since it's been decommissioned."
-- "Updated [[user-preferences]] with the new testing philosophy - run tests before committing. Created [[cast-integration]] to document the engine abstraction pattern."
-- "Reorganized the codebase knowledge - moved protocol docs under [[miriad-code/protocol]] and cross-linked with [[memory-system]]."
+- "Updated [[user-preferences]] with the new testing philosophy - run tests before committing."
 
 **Avoid mechanical summaries**:
 - ✗ "Created 2 entries, updated 1 entry"
@@ -647,9 +246,6 @@ export async function runConsolidation(
   result.ran = true
   log.info("starting consolidation", { messageCount: messages.length })
 
-  // Build agent context (shared with all workloads)
-  const ctx = await buildAgentContext(storage)
-
   // Find recently updated entries (updated in the last hour)
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const allEntries = await storage.ltm.glob("/**")
@@ -657,61 +253,55 @@ export async function runConsolidation(
     (e) => e.updatedAt > oneHourAgo && e.slug !== "identity" && e.slug !== "behavior",
   )
 
-  // Build the LTM review turn content (added as system message)
-  const reviewTurnContent = await buildLTMReviewTurn(storage, recentlyUpdated)
+  // Build the task prompt
+  const taskPrompt = await buildLTMReviewPrompt(storage, recentlyUpdated)
 
-  // Get model (use workhorse tier for consolidation - Haiku is unreliable with tool schemas)
-  const model = Provider.getModelForTier("workhorse")
-
-  // Build tools with execute callbacks
+  // Build tools with result tracking
   const { tools, getLastResult } = buildConsolidationTools(storage)
 
-  // Initial messages: conversation history + LTM review task as user message
-  // (only the top-level system prompt can use system role)
-  const initialMessages: CoreMessage[] = [
-    ...ctx.historyTurns,
-    { role: "user", content: `[SYSTEM TASK]\n\n${reviewTurnContent}` },
-  ]
-
-  // Run the agent loop using the generic loop abstraction
-  const loopResult = await runAgentLoop({
-    model,
-    systemPrompt: ctx.systemPrompt,
-    initialMessages,
+  // Run sub-agent
+  const subAgentResult = await runSubAgent(storage, {
+    name: "ltm-curator",
+    taskPrompt,
     tools,
-    maxTokens: 2048,
-    temperature: 0,
+    finishToolName: "finish_consolidation",
+    extractResult: () => {
+      // Extract summary from the last finish_consolidation call
+      // This is a bit awkward - we track it via onToolResult
+      return result.summary
+    },
+    tier: "workhorse",
     maxTurns: MAX_CONSOLIDATION_TURNS,
-    isDone: stopOnTool("finish_consolidation"),
+    maxTokens: 2048,
     onToolResult: (toolCallId) => {
-      // Track results using our result tracking map
       const toolResult = getLastResult(toolCallId)
-      if (toolResult?.entryCreated) {
+      if (!toolResult) return
+
+      if (toolResult.entryCreated) {
         result.entriesCreated++
         if (toolResult.slug) {
           result.details.push(`Created [[${toolResult.slug}]]${toolResult.title ? ` - ${toolResult.title}` : ""}`)
         }
       }
-      if (toolResult?.entryUpdated) {
+      if (toolResult.entryUpdated) {
         result.entriesUpdated++
         if (toolResult.slug) {
           result.details.push(`Updated [[${toolResult.slug}]]`)
         }
       }
-      if (toolResult?.entryArchived) {
+      if (toolResult.entryArchived) {
         result.entriesArchived++
         if (toolResult.slug) {
           result.details.push(`Archived [[${toolResult.slug}]]`)
         }
       }
-      if (toolResult?.summary) {
+      if (toolResult.summary) {
         result.summary = toolResult.summary
       }
     },
   })
 
-  result.usage.inputTokens += loopResult.usage.inputTokens
-  result.usage.outputTokens += loopResult.usage.outputTokens
+  result.usage = subAgentResult.usage
 
   // If no summary was set, the agent ended without calling finish_consolidation
   if (!result.summary) {

@@ -14,18 +14,10 @@
  * but has different tools focused on memory research.
  */
 
-import type { CoreMessage } from "ai"
 import type { Storage } from "../storage"
-import { Provider } from "../provider"
-import { Log } from "../util/log"
 import { activity } from "../util/activity-log"
-import { buildAgentContext } from "../context"
-import { runAgentLoop, stopOnTool } from "../agent/loop"
-import { buildReflectionSearchTools } from "../tool/reflection-search"
-
-const log = Log.create({ service: "reflection-agent" })
-
-const MAX_REFLECTION_TURNS = 20
+import { runSubAgent, type SubAgentResult } from "../sub-agent"
+import { buildReflectionTools } from "./tools"
 
 /**
  * Result of a reflection.
@@ -80,52 +72,28 @@ export async function runReflection(
 ): Promise<ReflectionResult> {
   activity.reflection.start("Memory research", { question: question.slice(0, 50) })
 
-  // Build agent context (same as main agent for cache efficiency)
-  const ctx = await buildAgentContext(storage)
-
-  // Get model (workhorse tier for handling lots of context)
-  const model = Provider.getModelForTier("workhorse")
-
   // Build tools
-  const { tools, getAnswer } = buildReflectionSearchTools({ storage })
+  const { tools, getAnswer } = buildReflectionTools({ storage })
 
-  // Build the reflection task prompt
-  const taskPrompt = buildReflectionPrompt(question)
-
-  // Initial messages: conversation history + reflection task
-  const initialMessages: CoreMessage[] = [
-    ...ctx.historyTurns,
-    { role: "user", content: `[SYSTEM TASK]\n\n${taskPrompt}` },
-  ]
-
-  // Run the agent loop
-  const loopResult = await runAgentLoop({
-    model,
-    systemPrompt: ctx.systemPrompt,
-    initialMessages,
+  // Run sub-agent
+  const result: SubAgentResult<string | null> = await runSubAgent(storage, {
+    name: "reflection",
+    taskPrompt: buildReflectionPrompt(question),
     tools,
+    finishToolName: "finish_reflection",
+    extractResult: getAnswer,
+    tier: "workhorse",
+    maxTurns: 20,
     maxTokens: 4096,
-    temperature: 0,
-    maxTurns: MAX_REFLECTION_TURNS,
-    isDone: stopOnTool("finish_reflection"),
   })
 
-  const answer = getAnswer()
+  const answer = result.result ?? "Unable to find relevant information."
 
-  if (!answer) {
-    // Agent didn't call finish_reflection - use final text as fallback
-    log.warn("reflection agent did not call finish_reflection", {
-      turnsUsed: loopResult.turnsUsed,
-    })
+  activity.reflection.complete(`${result.turnsUsed} turns, ${answer.length} chars`)
+
+  return {
+    answer,
+    turnsUsed: result.turnsUsed,
+    usage: result.usage,
   }
-
-  const result: ReflectionResult = {
-    answer: answer ?? loopResult.finalText ?? "Unable to find relevant information.",
-    turnsUsed: loopResult.turnsUsed,
-    usage: loopResult.usage,
-  }
-
-  activity.reflection.complete(`${result.turnsUsed} turns, ${result.answer.length} chars`)
-
-  return result
 }
