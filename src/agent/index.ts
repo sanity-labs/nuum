@@ -45,6 +45,7 @@ import { runMemoryCuration, getEffectiveViewTokens, type MemoryCurationResult, t
 import { Log } from "../util/log"
 import { activity } from "../util/activity-log"
 import { Mcp } from "../mcp"
+import { refreshSkills } from "../skills"
 
 const log = Log.create({ service: "agent" })
 
@@ -762,6 +763,9 @@ export async function runAgent(
 
     // Check for mid-turn messages to inject
     onBeforeTurn: async () => {
+      // Refresh skills cache to pick up newly installed skills
+      refreshSkills()
+      
       const content = await onBeforeTurn?.()
       if (content) {
         // Persist the injected user message to temporal

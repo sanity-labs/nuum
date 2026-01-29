@@ -2,7 +2,7 @@
  * System prompt building for the agent.
  *
  * Builds the static part of the agent's context: identity, behavior,
- * and instructions. This is shared across all workloads (main agent,
+ * skills, and instructions. This is shared across all workloads (main agent,
  * compaction, consolidation) for prompt caching efficiency.
  * 
  * NOTE: Present state (mission, status, tasks) is NOT included here.
@@ -12,6 +12,7 @@
  */
 
 import type { Storage } from "../storage"
+import { getSkills, formatSkillsCatalog } from "../skills"
 
 /**
  * Estimate token count from text (rough approximation).
@@ -93,6 +94,15 @@ Use reflect when:
 
 Messages in your history have automatic prefixes like \`[2026-01-26 15:30 id:msg_xxx]\` showing timestamp and ID. These are added by the system for internal tracking - you don't need to reference or echo them. Just read the message content normally.
 `
+
+  // Add skills catalog (if any skills are available)
+  const skills = getSkills()
+  const skillsCatalog = formatSkillsCatalog(skills)
+  if (skillsCatalog) {
+    prompt += `
+${skillsCatalog}
+`
+  }
 
   // Add CAST-provided system prompt overlay (if any)
   const systemPromptOverlay = await storage.session.getSystemPromptOverlay()
