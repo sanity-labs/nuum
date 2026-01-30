@@ -33,8 +33,6 @@ import {
   LTMGlobTool,
   LTMSearchTool,
   LTMReadTool,
-  ReflectTool,
-  ResearchTool,
   ListTasksTool,
   SetAlarmTool,
   BackgroundResearchTool,
@@ -522,22 +520,6 @@ function buildTools(
     parameters: LTMReadTool.definition.parameters,
     execute: async (args, { toolCallId }) =>
       safeExecute("ltm_read", () => LTMReadTool.definition.execute(args, factory.createLTMContext(toolCallId))),
-  })
-
-  // Reflection tool - search own memory to answer questions
-  tools.reflect = tool({
-    description: ReflectTool.definition.description,
-    parameters: ReflectTool.definition.parameters,
-    execute: async (args, { toolCallId }) =>
-      safeExecute("reflect", () => ReflectTool.definition.execute(args, factory.createReflectContext(toolCallId))),
-  })
-
-  // Research tool - investigate topics and build LTM knowledge
-  tools.research = tool({
-    description: ResearchTool.definition.description,
-    parameters: ResearchTool.definition.parameters,
-    execute: async (args, { toolCallId }) =>
-      safeExecute("research", () => ResearchTool.definition.execute(args, factory.createResearchContext(toolCallId))),
   })
 
   // List tasks tool - show background tasks and alarms
