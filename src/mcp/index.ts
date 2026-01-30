@@ -44,6 +44,10 @@ export namespace Mcp {
     transport: z.enum(["http", "sse"]).optional().default("http"),
     disabled: z.boolean().optional().default(false),
     timeout: z.number().optional().default(30000),
+    // Reconnection options
+    maxRetries: z.number().optional().default(5),
+    initialReconnectionDelay: z.number().optional().default(1000),
+    maxReconnectionDelay: z.number().optional().default(60000),
   })
   export type HttpServerConfig = z.infer<typeof HttpServerConfigSchema>
 
@@ -136,6 +140,7 @@ export namespace Mcp {
     tools: Tool[]
     status: "connected" | "failed" | "disabled"
     error?: string
+    sessionId?: string // For HTTP transports - enables session resumption
   }
 
   export class Manager {
@@ -165,6 +170,12 @@ export namespace Mcp {
             requestInit: config.headers
               ? { headers: config.headers }
               : undefined,
+            reconnectionOptions: {
+              maxRetries: config.maxRetries ?? 5,
+              initialReconnectionDelay: config.initialReconnectionDelay ?? 1000,
+              maxReconnectionDelay: config.maxReconnectionDelay ?? 60000,
+              reconnectionDelayGrowFactor: 1.5,
+            },
           })
         }
       }
@@ -216,7 +227,18 @@ export namespace Mcp {
         const toolsResult = await client.listTools()
         const tools = toolsResult.tools
 
-        console.error(`[mcp:${name}] Connected, ${tools.length} tools available`)
+        // Capture session ID for HTTP transports (enables session resumption)
+        let sessionId: string | undefined
+        if (transport instanceof StreamableHTTPClientTransport) {
+          sessionId = transport.sessionId
+          if (sessionId) {
+            console.error(`[mcp:${name}] Connected with session ${sessionId.slice(0, 8)}..., ${tools.length} tools available`)
+          } else {
+            console.error(`[mcp:${name}] Connected (no session), ${tools.length} tools available`)
+          }
+        } else {
+          console.error(`[mcp:${name}] Connected, ${tools.length} tools available`)
+        }
 
         return {
           name,
@@ -224,6 +246,7 @@ export namespace Mcp {
           client,
           tools,
           status: "connected",
+          sessionId,
         }
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e)
@@ -330,23 +353,39 @@ export namespace Mcp {
         description: mcpTool.description ?? `MCP tool: ${mcpTool.name}`,
         parameters: jsonSchema(mcpTool.inputSchema as any),
         execute: async (args) => {
-          const result = await client.callTool({
-            name: mcpTool.name,
-            arguments: args as Record<string, unknown>,
-          })
+          try {
+            const result = await client.callTool({
+              name: mcpTool.name,
+              arguments: args as Record<string, unknown>,
+            })
 
-          // Extract text content from result
-          if ("content" in result && Array.isArray(result.content)) {
-            const textParts = result.content
-              .filter(
-                (c): c is { type: "text"; text: string } => c.type === "text"
-              )
-              .map((c) => c.text)
-            return textParts.join("\n")
+            // Check for MCP-level errors in the result
+            if ("isError" in result && result.isError) {
+              const errorContent = result.content
+                ?.filter((c): c is { type: "text"; text: string } => c.type === "text")
+                .map((c) => c.text)
+                .join("\n")
+              return `Error: ${errorContent || "Tool execution failed"}`
+            }
+
+            // Extract text content from result
+            if ("content" in result && Array.isArray(result.content)) {
+              const textParts = result.content
+                .filter(
+                  (c): c is { type: "text"; text: string } => c.type === "text"
+                )
+                .map((c) => c.text)
+              return textParts.join("\n")
+            }
+
+            // Fallback to JSON stringification
+            return JSON.stringify(result)
+          } catch (error) {
+            // Connection errors, timeouts, etc. - return error to agent instead of crashing
+            const message = error instanceof Error ? error.message : String(error)
+            console.error(`[mcp:${serverName}] Tool ${mcpTool.name} failed: ${message}`)
+            return `Error: MCP tool call failed - ${message}. The server may be temporarily unavailable.`
           }
-
-          // Fallback to JSON stringification
-          return JSON.stringify(result)
         },
       })
     }
