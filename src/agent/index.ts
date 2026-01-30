@@ -36,10 +36,12 @@ import {
   ReflectTool,
   ResearchTool,
   ListTasksTool,
+  SetAlarmTool,
   type LTMToolContext,
   type ReflectToolContext,
   type ResearchToolContext,
   type ListTasksToolContext,
+  type SetAlarmToolContext,
 } from "../tool"
 import { runAgentLoop, AgentLoopCancelledError } from "./loop"
 import { buildAgentContext } from "../context"
@@ -538,6 +540,14 @@ function buildTools(
     parameters: ListTasksTool.definition.parameters,
     execute: async (args, { toolCallId }) =>
       safeExecute("list_tasks", () => ListTasksTool.definition.execute(args, factory.createListTasksContext(toolCallId))),
+  })
+
+  // Set alarm tool - schedule future reminders
+  tools.set_alarm = tool({
+    description: SetAlarmTool.definition.description,
+    parameters: SetAlarmTool.definition.parameters,
+    execute: async (args, { toolCallId }) =>
+      safeExecute("set_alarm", () => SetAlarmTool.definition.execute(args, factory.createListTasksContext(toolCallId))),
   })
 
   return tools

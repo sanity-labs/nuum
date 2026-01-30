@@ -48,3 +48,4 @@ export { buildReflectionTools, type ReflectionToolContext } from "../reflection/
 
 // Background task tools
 export { ListTasksTool, type ListTasksToolContext, type ListTasksMetadata } from "./list-tasks"
+export { SetAlarmTool, type SetAlarmToolContext, type SetAlarmMetadata } from "./set-alarm"

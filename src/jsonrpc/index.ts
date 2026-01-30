@@ -55,6 +55,8 @@ export class Server {
   private rl: readline.Interface | null = null
   private processing = false
   private sessionId: string = "" // Set in start()
+  private alarmInterval: ReturnType<typeof setInterval> | null = null
+  private checkingAlarms = false // Prevent re-entrancy
 
   constructor(private options: ServerOptions) {
     this.storage = createStorage(options.dbPath)
@@ -92,6 +94,13 @@ export class Server {
       log.info("stdin closed, shutting down")
       this.shutdown("stdin closed")
     })
+
+    // Start alarm polling (check every second)
+    this.alarmInterval = setInterval(() => {
+      this.checkAlarms().catch((error) => {
+        log.error("error checking alarms", { error })
+      })
+    }, 1000)
 
     log.info("server started", { dbPath: this.options.dbPath, sessionId: this.sessionId })
 
@@ -186,6 +195,12 @@ export class Server {
   private async shutdown(reason: string): Promise<void> {
     log.info("shutting down", { reason })
     
+    // Stop alarm polling
+    if (this.alarmInterval) {
+      clearInterval(this.alarmInterval)
+      this.alarmInterval = null
+    }
+    
     // Cancel any running turn
     if (this.currentTurn) {
       this.currentTurn.abortController.abort()
@@ -198,6 +213,70 @@ export class Server {
     this.rl?.close()
 
     process.exit(0)
+  }
+
+  /**
+   * Check for due alarms and trigger self-turns if needed.
+   */
+  private async checkAlarms(): Promise<void> {
+    // Prevent re-entrancy
+    if (this.checkingAlarms) return
+    this.checkingAlarms = true
+
+    try {
+      const dueAlarms = await this.storage.tasks.getDueAlarms()
+      if (dueAlarms.length === 0) return
+
+      log.info("alarms fired", { count: dueAlarms.length })
+
+      // Mark alarms as fired and queue results
+      for (const alarm of dueAlarms) {
+        await this.storage.tasks.markAlarmFired(alarm.id)
+        
+        // Queue to conscious queue
+        await this.storage.tasks.queueResult(
+          alarm.id,
+          `⏰ **Alarm fired**: ${alarm.note}`
+        )
+      }
+
+      // If no turn is running, trigger a self-turn
+      if (!this.currentTurn && !this.processing) {
+        await this.triggerSelfTurn()
+      }
+    } finally {
+      this.checkingAlarms = false
+    }
+  }
+
+  /**
+   * Trigger a turn with queued conscious results (alarms, background task completions).
+   */
+  private async triggerSelfTurn(): Promise<void> {
+    // Drain the conscious queue
+    const results = await this.storage.tasks.drainQueue()
+    if (results.length === 0) return
+
+    log.info("triggering self-turn", { resultCount: results.length })
+
+    // Combine all results into a single prompt
+    const content = results.map(r => r.content).join("\n\n")
+    
+    // Create a synthetic user message for the self-turn
+    const selfMessage: UserMessage = {
+      type: "user",
+      session_id: this.sessionId,
+      message: {
+        role: "user",
+        content: `[SYSTEM: Background events occurred]\n\n${content}`,
+      },
+    }
+
+    // Process the self-turn
+    await this.processTurn(selfMessage)
+    
+    // Process any queued messages that came in during the self-turn
+    await this.processQueue()
   }
 
   private async handleUserMessage(userMessage: UserMessage): Promise<void> {
