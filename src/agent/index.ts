@@ -33,11 +33,19 @@ import {
   LTMGlobTool,
   LTMSearchTool,
   LTMReadTool,
-  ReflectTool,
-  ResearchTool,
+  ListTasksTool,
+  SetAlarmTool,
+  BackgroundResearchTool,
+  BackgroundReflectTool,
+  CancelTaskTool,
   type LTMToolContext,
   type ReflectToolContext,
   type ResearchToolContext,
+  type ListTasksToolContext,
+  type SetAlarmToolContext,
+  type BackgroundResearchToolContext,
+  type BackgroundReflectToolContext,
+  type CancelTaskToolContext,
 } from "../tool"
 import { runAgentLoop, AgentLoopCancelledError } from "./loop"
 import { buildAgentContext } from "../context"
@@ -283,6 +291,7 @@ interface ToolContextFactory {
   createLTMContext(callId: string): Tool.Context & { extra: LTMToolContext }
   createReflectContext(callId: string): Tool.Context & { extra: ReflectToolContext }
   createResearchContext(callId: string): Tool.Context & { extra: ResearchToolContext }
+  createListTasksContext(callId: string): Tool.Context & { extra: ListTasksToolContext }
 }
 
 function createToolContextFactory(
@@ -332,6 +341,16 @@ function createToolContextFactory(
       }) as Tool.Context & { extra: ResearchToolContext }
       ctx.extra = {
         storage,
+      }
+      return ctx
+    },
+    createListTasksContext(callId: string): Tool.Context & { extra: ListTasksToolContext } {
+      const ctx = Tool.createContext({
+        ...baseContext,
+        callID: callId,
+      }) as Tool.Context & { extra: ListTasksToolContext }
+      ctx.extra = {
+        tasks: storage.tasks,
       }
       return ctx
     },
@@ -503,20 +522,44 @@ function buildTools(
       safeExecute("ltm_read", () => LTMReadTool.definition.execute(args, factory.createLTMContext(toolCallId))),
   })
 
-  // Reflection tool - search own memory to answer questions
-  tools.reflect = tool({
-    description: ReflectTool.definition.description,
-    parameters: ReflectTool.definition.parameters,
+  // List tasks tool - show background tasks and alarms
+  tools.list_tasks = tool({
+    description: ListTasksTool.definition.description,
+    parameters: ListTasksTool.definition.parameters,
     execute: async (args, { toolCallId }) =>
-      safeExecute("reflect", () => ReflectTool.definition.execute(args, factory.createReflectContext(toolCallId))),
+      safeExecute("list_tasks", () => ListTasksTool.definition.execute(args, factory.createListTasksContext(toolCallId))),
   })
 
-  // Research tool - investigate topics and build LTM knowledge
-  tools.research = tool({
-    description: ResearchTool.definition.description,
-    parameters: ResearchTool.definition.parameters,
+  // Set alarm tool - schedule future reminders
+  tools.set_alarm = tool({
+    description: SetAlarmTool.definition.description,
+    parameters: SetAlarmTool.definition.parameters,
     execute: async (args, { toolCallId }) =>
-      safeExecute("research", () => ResearchTool.definition.execute(args, factory.createResearchContext(toolCallId))),
+      safeExecute("set_alarm", () => SetAlarmTool.definition.execute(args, factory.createListTasksContext(toolCallId))),
+  })
+
+  // Background research tool - spawn research in background
+  tools.background_research = tool({
+    description: BackgroundResearchTool.definition.description,
+    parameters: BackgroundResearchTool.definition.parameters,
+    execute: async (args, { toolCallId }) =>
+      safeExecute("background_research", () => BackgroundResearchTool.definition.execute(args, factory.createResearchContext(toolCallId))),
+  })
+
+  // Background reflect tool - spawn reflection in background
+  tools.background_reflect = tool({
+    description: BackgroundReflectTool.definition.description,
+    parameters: BackgroundReflectTool.definition.parameters,
+    execute: async (args, { toolCallId }) =>
+      safeExecute("background_reflect", () => BackgroundReflectTool.definition.execute(args, factory.createReflectContext(toolCallId))),
+  })
+
+  // Cancel task tool - cancel a running background task
+  tools.cancel_task = tool({
+    description: CancelTaskTool.definition.description,
+    parameters: CancelTaskTool.definition.parameters,
+    execute: async (args, { toolCallId }) =>
+      safeExecute("cancel_task", () => CancelTaskTool.definition.execute(args, factory.createListTasksContext(toolCallId))),
   })
 
   return tools

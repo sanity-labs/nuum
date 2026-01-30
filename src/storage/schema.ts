@@ -152,6 +152,65 @@ export const backgroundReports = sqliteTable(
 )
 
 // ─────────────────────────────────────────────────────────────────
+// Background Tasks - conscious async tasks (research, reflect, alarms)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Background tasks spawned by the agent (research, reflect).
+ * These are "conscious" tasks - the agent explicitly started them
+ * and expects results.
+ */
+export const backgroundTasks = sqliteTable(
+  "background_tasks",
+  {
+    id: text("id").primaryKey(),
+    type: text("type").notNull(), // 'research' | 'reflect'
+    description: text("description").notNull(), // Human-readable description
+    status: text("status").notNull(), // 'running' | 'completed' | 'failed' | 'killed'
+    createdAt: text("created_at").notNull(),
+    completedAt: text("completed_at"),
+    result: text("result"), // JSON blob with task result
+    error: text("error"), // Error message if failed
+  },
+  (table) => [
+    index("idx_background_tasks_status").on(table.status),
+  ],
+)
+
+/**
+ * Queue for completed background task results.
+ * Drained at end of turn to continue processing.
+ */
+export const backgroundTaskQueue = sqliteTable(
+  "background_task_queue",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id").notNull(),
+    createdAt: text("created_at").notNull(),
+    content: text("content").notNull(), // The message to inject
+  },
+  (table) => [
+    index("idx_background_task_queue_created").on(table.createdAt),
+  ],
+)
+
+/**
+ * Alarms - scheduled "notes to self" that trigger turns.
+ */
+export const alarms = sqliteTable(
+  "alarms",
+  {
+    id: text("id").primaryKey(),
+    firesAt: text("fires_at").notNull(), // ISO timestamp
+    note: text("note").notNull(), // The "note to self"
+    fired: integer("fired").notNull().default(0), // 1 if already fired
+  },
+  (table) => [
+    index("idx_alarms_fires_at").on(table.firesAt),
+  ],
+)
+
+// ─────────────────────────────────────────────────────────────────
 // Type exports for use in storage implementations
 // ─────────────────────────────────────────────────────────────────
 
@@ -172,3 +231,12 @@ export type WorkerInsert = typeof workers.$inferInsert
 
 export type BackgroundReportRow = typeof backgroundReports.$inferSelect
 export type BackgroundReportInsert = typeof backgroundReports.$inferInsert
+
+export type BackgroundTask = typeof backgroundTasks.$inferSelect
+export type BackgroundTaskInsert = typeof backgroundTasks.$inferInsert
+
+export type BackgroundTaskQueueRow = typeof backgroundTaskQueue.$inferSelect
+export type BackgroundTaskQueueInsert = typeof backgroundTaskQueue.$inferInsert
+
+export type Alarm = typeof alarms.$inferSelect
+export type AlarmInsert = typeof alarms.$inferInsert

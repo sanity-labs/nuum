@@ -27,6 +27,11 @@ export namespace Identifier {
     // Background reports
     report: "rpt",
 
+    // Background tasks
+    bgtask: "bgt",
+    queue: "que",
+    alarm: "alm",
+
     // Misc
     session: "ses",
     toolcall: "tcl",

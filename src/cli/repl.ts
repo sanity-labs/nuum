@@ -7,14 +7,16 @@
  * - Commands: /quit, /inspect, /dump, /help
  * - Streaming output with tool progress
  * - Ctrl+C interrupts request, Ctrl+D exits
+ * 
+ * Uses Server internally for consistent behavior with stdio mode,
+ * including background tasks and alarm polling.
  */
 
 import * as readline from "readline"
 import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
-import { createStorage, initializeDefaultEntries, cleanupStaleWorkers, type Storage } from "../storage"
-import { runAgent, AgentCancelledError, type AgentEvent, type AgentOptions } from "../agent"
+import { Server, type ServerOptions } from "../jsonrpc"
 import { runInspect, runDump } from "./inspect"
 
 const PROMPT = "miriad-code> "
@@ -27,24 +29,29 @@ export interface ReplOptions {
 
 /**
  * REPL session managing state and I/O.
+ * Wraps Server to provide human-friendly interactive mode.
  */
 export class ReplSession {
-  private storage: Storage
+  private server: Server
   private rl: readline.Interface | null = null
-  private abortController: AbortController | null = null
-  private isRunning = false
   private history: string[] = []
+  private isRunning = false
 
   constructor(private options: ReplOptions) {
-    this.storage = createStorage(options.dbPath)
+    // Create server with REPL output handler, no stdin (REPL handles input)
+    this.server = new Server({
+      dbPath: options.dbPath,
+      outputHandler: (message) => this.handleServerOutput(message),
+      noStdin: true,
+    })
   }
 
   /**
    * Start the REPL.
    */
   async start(): Promise<void> {
-    await cleanupStaleWorkers(this.storage)
-    await initializeDefaultEntries(this.storage)
+    // Initialize server (starts alarm loop, MCP, etc.)
+    await this.server.start()
 
     // Load history
     this.loadHistory()
@@ -66,9 +73,9 @@ export class ReplSession {
 
     // Handle Ctrl+C (SIGINT)
     this.rl.on("SIGINT", () => {
-      if (this.isRunning && this.abortController) {
-        // Cancel current request
-        this.abortController.abort()
+      if (this.isRunning) {
+        // Cancel current request via server
+        this.server.interrupt()
         process.stdout.write("\n^C - Request cancelled\n")
       } else {
         // Show hint
@@ -81,7 +88,7 @@ export class ReplSession {
     this.rl.on("close", () => {
       this.saveHistory()
       console.log("\nGoodbye!")
-      process.exit(0)
+      this.server.shutdown("user exit")
     })
 
     // Handle input
@@ -126,7 +133,7 @@ export class ReplSession {
       return
     }
 
-    // Run agent with the prompt
+    // Run agent with the prompt via server
     await this.runPrompt(trimmed)
   }
 
@@ -143,7 +150,7 @@ export class ReplSession {
       case "q":
         this.saveHistory()
         console.log("Goodbye!")
-        process.exit(0)
+        this.server.shutdown("user exit")
         break
 
       case "inspect":
@@ -199,93 +206,79 @@ export class ReplSession {
   }
 
   /**
-   * Run the agent with a prompt and stream output.
+   * Run the agent with a prompt via server.
    */
   private async runPrompt(prompt: string): Promise<void> {
     this.isRunning = true
-    this.abortController = new AbortController()
-
-    // Track if we've printed any output
-    let hasOutput = false
-
-    const agentOptions: AgentOptions = {
-      storage: this.storage,
-      verbose: false,
-      abortSignal: this.abortController.signal,
-      onEvent: (event) => this.handleAgentEvent(event, () => { hasOutput = true }),
-    }
 
     try {
-      await runAgent(prompt, agentOptions)
-
-      // Ensure we end with a newline if there was output
-      if (hasOutput) {
-        console.log()
-      }
-    } catch (error) {
-      if (error instanceof AgentCancelledError) {
-        // Already handled in SIGINT
-      } else {
-        console.error(`\nError: ${error instanceof Error ? error.message : String(error)}`)
-      }
+      // Send message to server (it handles everything)
+      await this.server.sendUserMessage(prompt)
     } finally {
       this.isRunning = false
-      this.abortController = null
       console.log()
       this.rl?.prompt()
     }
   }
 
   /**
-   * Handle agent events and stream them to console.
+   * Handle output messages from the server.
+   * Translates protocol messages to human-friendly console output.
    */
-  private handleAgentEvent(event: AgentEvent, markOutput: () => void): void {
-    switch (event.type) {
-      case "assistant":
-        // Stream text as it comes
-        process.stdout.write(event.content)
-        markOutput()
-        break
+  private handleServerOutput(message: unknown): void {
+    const msg = message as Record<string, unknown>
+    const type = msg.type as string
 
-      case "tool_call":
-        // Show tool call as progress indicator
-        if (event.toolName) {
-          const displayName = this.formatToolName(event.toolName)
-          const args = this.formatToolArgs(event.content)
-          process.stdout.write(`\n[${displayName}${args}...]\n`)
-          markOutput()
-        }
-        break
-
-      case "tool_result":
-        // Don't show raw tool results - they're verbose
-        // The assistant's response will summarize them
-        break
-
-      case "error":
-        process.stdout.write(`\n[Error: ${event.content}]\n`)
-        markOutput()
-        break
-
-      case "consolidation":
-        // Show consolidation as subtle indicator
-        if (event.consolidationResult?.ran) {
-          const r = event.consolidationResult
-          const changes = r.entriesCreated + r.entriesUpdated + r.entriesArchived
-          if (changes > 0) {
-            process.stdout.write(`\n[LTM updated: ${changes} change(s)]\n`)
+    switch (type) {
+      case "assistant": {
+        const assistantMsg = msg.message as { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }
+        if (assistantMsg?.content) {
+          for (const block of assistantMsg.content) {
+            if (block.type === "text" && block.text) {
+              process.stdout.write(block.text)
+            } else if (block.type === "tool_use" && block.name) {
+              // Show tool call as progress indicator
+              const displayName = this.formatToolName(block.name)
+              const args = this.formatToolArgs(block.input)
+              process.stdout.write(`\n[${displayName}${args}...]\n`)
+            }
           }
         }
-        markOutput()
         break
+      }
 
-      case "compaction":
-        // Show compaction as subtle indicator
-        process.stdout.write(`\n[Memory compacted]\n`)
-        markOutput()
+      case "system": {
+        const subtype = msg.subtype as string
+        switch (subtype) {
+          case "init":
+            // Ignore init message in REPL
+            break
+          case "tool_result":
+            // Don't show raw tool results - they're verbose
+            break
+          case "error":
+            process.stdout.write(`\n[Error: ${(msg as { message?: string }).message}]\n`)
+            break
+          case "consolidation": {
+            const changes = ((msg as { entries_created?: number }).entries_created ?? 0) +
+              ((msg as { entries_updated?: number }).entries_updated ?? 0) +
+              ((msg as { entries_archived?: number }).entries_archived ?? 0)
+            if (changes > 0) {
+              process.stdout.write(`\n[LTM updated: ${changes} change(s)]\n`)
+            }
+            break
+          }
+          case "interrupted":
+            // Already handled by SIGINT handler
+            break
+        }
         break
+      }
 
-      // Ignore 'user' and 'done' events
+      case "result": {
+        // Turn completed - handled by runPrompt finally block
+        break
+      }
     }
   }
 
@@ -303,6 +296,11 @@ export class ReplSession {
       present_set_mission: "Setting mission",
       present_set_status: "Setting status",
       present_update_tasks: "Updating tasks",
+      set_alarm: "Setting alarm",
+      list_tasks: "Listing tasks",
+      background_research: "Starting research",
+      background_reflect: "Starting reflection",
+      cancel_task: "Cancelling task",
     }
     return displayNames[name] || name
   }
@@ -310,22 +308,22 @@ export class ReplSession {
   /**
    * Extract relevant args for display.
    */
-  private formatToolArgs(content: string): string {
-    try {
-      // Content is in format "name({...}...)"
-      const match = content.match(/\((\{.+?\})\.\.\.\)$/)
-      if (match) {
-        const args = JSON.parse(match[1] + "}")
+  private formatToolArgs(input: unknown): string {
+    if (!input || typeof input !== "object") return ""
+    const args = input as Record<string, unknown>
 
-        // Show relevant arg based on tool
-        if (args.path) return ` ${args.path}`
-        if (args.file) return ` ${args.file}`
-        if (args.pattern) return ` ${args.pattern}`
-        if (args.command) return ` ${args.command.slice(0, 50)}${args.command.length > 50 ? "..." : ""}`
-      }
-    } catch {
-      // Ignore parse errors
+    // Show relevant arg based on tool
+    if (args.path) return ` ${args.path}`
+    if (args.filePath) return ` ${args.filePath}`
+    if (args.pattern) return ` ${args.pattern}`
+    if (args.command) {
+      const cmd = String(args.command)
+      return ` ${cmd.slice(0, 50)}${cmd.length > 50 ? "..." : ""}`
     }
+    if (args.delay) return ` ${args.delay}`
+    if (args.topic) return ` "${String(args.topic).slice(0, 40)}..."`
+    if (args.question) return ` "${String(args.question).slice(0, 40)}..."`
+
     return ""
   }
 

@@ -38,6 +38,15 @@ const log = Log.create({ service: "server" })
 
 export interface ServerOptions {
   dbPath: string
+  /**
+   * Custom output handler. If not provided, outputs to stdout as NDJSON.
+   * Used by REPL to intercept and format output for human display.
+   */
+  outputHandler?: (message: OutputMessage) => void
+  /**
+   * If true, don't set up stdin reading (for programmatic use).
+   */
+  noStdin?: boolean
 }
 
 interface TurnState {
@@ -55,14 +64,22 @@ export class Server {
   private rl: readline.Interface | null = null
   private processing = false
   private sessionId: string = "" // Set in start()
+  private alarmInterval: ReturnType<typeof setInterval> | null = null
+  private checkingAlarms = false // Prevent re-entrancy
+  private outputHandler: (message: OutputMessage) => void
+  private turnCompleteResolve: (() => void) | null = null // For programmatic use
 
   constructor(private options: ServerOptions) {
     this.storage = createStorage(options.dbPath)
+    this.outputHandler = options.outputHandler ?? ((msg) => {
+      process.stdout.write(JSON.stringify(msg) + "\n")
+    })
   }
 
   async start(): Promise<void> {
     await cleanupStaleWorkers(this.storage)
     await initializeDefaultEntries(this.storage)
+    await this.recoverKilledTasks()
 
     // Get or create session ID (persisted in database)
     this.sessionId = await this.storage.session.getId()
@@ -71,26 +88,35 @@ export class Server {
     await Mcp.initialize()
     const mcpTools = Mcp.getToolNames()
 
-    // Setup SIGTERM handler for graceful shutdown
-    process.on("SIGTERM", () => this.shutdown("SIGTERM"))
-    process.on("SIGINT", () => this.shutdown("SIGINT"))
+    // Setup SIGTERM handler for graceful shutdown (only for stdio mode)
+    if (!this.options.noStdin) {
+      process.on("SIGTERM", () => this.shutdown("SIGTERM"))
+      process.on("SIGINT", () => this.shutdown("SIGINT"))
 
-    this.rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: false,
-    })
-
-    this.rl.on("line", (line) => {
-      this.handleLine(line).catch((error) => {
-        log.error("unhandled error in line handler", { error })
+      this.rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        terminal: false,
       })
-    })
 
-    this.rl.on("close", () => {
-      log.info("stdin closed, shutting down")
-      this.shutdown("stdin closed")
-    })
+      this.rl.on("line", (line) => {
+        this.handleLine(line).catch((error) => {
+          log.error("unhandled error in line handler", { error })
+        })
+      })
+
+      this.rl.on("close", () => {
+        log.info("stdin closed, shutting down")
+        this.shutdown("stdin closed")
+      })
+    }
+
+    // Start alarm polling (check every second)
+    this.alarmInterval = setInterval(() => {
+      this.checkAlarms().catch((error) => {
+        log.error("error checking alarms", { error })
+      })
+    }, 1000)
 
     log.info("server started", { dbPath: this.options.dbPath, sessionId: this.sessionId })
 
@@ -155,10 +181,42 @@ export class Server {
   }
 
   /**
-   * Graceful shutdown - close storage and exit.
+   * Recover tasks that were killed when the agent restarted.
+   * Files reports to the subconscious queue so agent learns about them.
    */
-  private async shutdown(reason: string): Promise<void> {
+  private async recoverKilledTasks(): Promise<void> {
+    const killedTasks = await this.storage.tasks.recoverKilledTasks()
+    
+    if (killedTasks.length === 0) return
+    
+    log.info("recovered killed tasks", { count: killedTasks.length })
+    
+    // File each killed task to the subconscious queue (background reports)
+    for (const task of killedTasks) {
+      await this.storage.background.fileReport({
+        subsystem: "task_recovery",
+        report: {
+          message: `Background task was killed when agent restarted: ${task.type} - "${task.description}". You may want to restart it.`,
+          taskId: task.id,
+          type: task.type,
+          description: task.description,
+        },
+      })
+    }
+  }
+
+  /**
+   * Graceful shutdown - close storage and exit.
+   * Public so REPL can call it.
+   */
+  async shutdown(reason: string): Promise<void> {
     log.info("shutting down", { reason })
+    
+    // Stop alarm polling
+    if (this.alarmInterval) {
+      clearInterval(this.alarmInterval)
+      this.alarmInterval = null
+    }
     
     // Cancel any running turn
     if (this.currentTurn) {
@@ -172,6 +230,110 @@ export class Server {
     this.rl?.close()
 
     process.exit(0)
+  }
+
+  /**
+   * Interrupt the current turn (for programmatic use).
+   */
+  interrupt(): void {
+    if (this.currentTurn) {
+      log.info("interrupting current turn", { sessionId: this.currentTurn.sessionId })
+      this.currentTurn.abortController.abort()
+      this.send(systemMessage("interrupted", { session_id: this.currentTurn.sessionId }))
+    }
+  }
+
+  /**
+   * Send a user message programmatically (for REPL use).
+   * Returns a promise that resolves when the turn completes.
+   */
+  async sendUserMessage(prompt: string): Promise<void> {
+    const userMessage: UserMessage = {
+      type: "user",
+      session_id: this.sessionId,
+      message: {
+        role: "user",
+        content: prompt,
+      },
+    }
+
+    // Create a promise that will be resolved when the turn completes
+    const turnComplete = new Promise<void>((resolve) => {
+      this.turnCompleteResolve = resolve
+    })
+
+    await this.handleUserMessage(userMessage)
+
+    // Wait for turn to complete
+    await turnComplete
+  }
+
+  /**
+   * Check for due alarms and queued results, trigger self-turns if needed.
+   */
+  private async checkAlarms(): Promise<void> {
+    // Prevent re-entrancy
+    if (this.checkingAlarms) return
+    this.checkingAlarms = true
+
+    try {
+      // Check for due alarms
+      const dueAlarms = await this.storage.tasks.getDueAlarms()
+      if (dueAlarms.length > 0) {
+        log.info("alarms fired", { count: dueAlarms.length })
+
+        // Mark alarms as fired and queue results
+        for (const alarm of dueAlarms) {
+          await this.storage.tasks.markAlarmFired(alarm.id)
+          
+          // Queue to conscious queue
+          await this.storage.tasks.queueResult(
+            alarm.id,
+            `⏰ **Alarm fired**: ${alarm.note}`
+          )
+        }
+      }
+
+      // Check if there are any queued results (from alarms or background tasks)
+      const hasResults = await this.storage.tasks.hasQueuedResults()
+      
+      // If no turn is running and we have results, trigger a self-turn
+      if (hasResults && !this.currentTurn && !this.processing) {
+        await this.triggerSelfTurn()
+      }
+    } finally {
+      this.checkingAlarms = false
+    }
+  }
+
+  /**
+   * Trigger a turn with queued conscious results (alarms, background task completions).
+   */
+  private async triggerSelfTurn(): Promise<void> {
+    // Drain the conscious queue
+    const results = await this.storage.tasks.drainQueue()
+    if (results.length === 0) return
+
+    log.info("triggering self-turn", { resultCount: results.length })
+
+    // Combine all results into a single prompt
+    const content = results.map(r => r.content).join("\n\n")
+    
+    // Create a synthetic user message for the self-turn
+    const selfMessage: UserMessage = {
+      type: "user",
+      session_id: this.sessionId,
+      message: {
+        role: "user",
+        content: `[SYSTEM: Background events occurred]\n\n${content}`,
+      },
+    }
+
+    // Process the self-turn
+    await this.processTurn(selfMessage)
+    
+    // Process any queued messages that came in during the self-turn
+    await this.processQueue()
   }
 
   private async handleUserMessage(userMessage: UserMessage): Promise<void> {
@@ -280,6 +442,11 @@ export class Server {
       )
     } finally {
       this.currentTurn = null
+      // Resolve the turn complete promise (for programmatic use)
+      if (this.turnCompleteResolve) {
+        this.turnCompleteResolve()
+        this.turnCompleteResolve = null
+      }
     }
   }
 
@@ -402,7 +569,7 @@ export class Server {
   }
 
   private send(message: OutputMessage): void {
-    process.stdout.write(JSON.stringify(message) + "\n")
+    this.outputHandler(message)
   }
 }
 

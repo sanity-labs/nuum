@@ -112,6 +112,43 @@ const INIT_SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_background_reports_unsurfaced
   ON background_reports(surfaced_at) WHERE surfaced_at IS NULL;
 
+  -- Background tasks (conscious async tasks)
+  CREATE TABLE IF NOT EXISTS background_tasks (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    result TEXT,
+    error TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_background_tasks_status
+  ON background_tasks(status);
+
+  -- Queue for completed task results
+  CREATE TABLE IF NOT EXISTS background_task_queue (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    content TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_background_task_queue_created
+  ON background_task_queue(created_at);
+
+  -- Alarms (scheduled notes to self)
+  CREATE TABLE IF NOT EXISTS alarms (
+    id TEXT PRIMARY KEY,
+    fires_at TEXT NOT NULL,
+    note TEXT NOT NULL,
+    fired INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_alarms_fires_at
+  ON alarms(fires_at);
+
   -- FTS5 virtual table for full-text search on temporal messages
   CREATE VIRTUAL TABLE IF NOT EXISTS temporal_messages_fts USING fts5(
     id UNINDEXED,

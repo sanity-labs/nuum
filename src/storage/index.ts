@@ -33,6 +33,7 @@ import {
 import { createWorkerStorage, type WorkerStorage, type WorkerType, type WorkerStatus } from "./worker"
 import { createSessionStorage, type SessionStorage } from "./session"
 import { createBackgroundStorage, type BackgroundStorage, type BackgroundReport, type BackgroundReportInput } from "./background"
+import { createTasksStorage, type TasksStorage, type BackgroundTask, type QueuedTaskResult, type Alarm, type CreateTaskInput, type CreateAlarmInput } from "./tasks"
 
 // Re-export types
 export type {
@@ -56,6 +57,12 @@ export type {
   BackgroundStorage,
   BackgroundReport,
   BackgroundReportInput,
+  TasksStorage,
+  BackgroundTask,
+  QueuedTaskResult,
+  Alarm,
+  CreateTaskInput,
+  CreateAlarmInput,
 }
 
 export { ConflictError }
@@ -82,6 +89,7 @@ export interface Storage {
   workers: WorkerStorage
   session: SessionStorage
   background: BackgroundStorage
+  tasks: TasksStorage
 }
 
 /**
@@ -133,6 +141,7 @@ function createStorageFromDb(db: DrizzleDB): StorageWithDb {
     workers: createWorkerStorage(db),
     session: createSessionStorage(db as any),
     background: createBackgroundStorage(db),
+    tasks: createTasksStorage(db),
     _db: db,
   }
 }

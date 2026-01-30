@@ -45,3 +45,10 @@ export {
 
 // Reflection agent tools (now in src/reflection/tools.ts)
 export { buildReflectionTools, type ReflectionToolContext } from "../reflection/tools"
+
+// Background task tools
+export { ListTasksTool, type ListTasksToolContext, type ListTasksMetadata } from "./list-tasks"
+export { SetAlarmTool, type SetAlarmToolContext, type SetAlarmMetadata } from "./set-alarm"
+export { BackgroundResearchTool, type BackgroundResearchToolContext, type BackgroundResearchMetadata } from "./background-research"
+export { BackgroundReflectTool, type BackgroundReflectToolContext, type BackgroundReflectMetadata } from "./background-reflect"
+export { CancelTaskTool, type CancelTaskToolContext, type CancelTaskMetadata } from "./cancel-task"
