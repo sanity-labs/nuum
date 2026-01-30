@@ -361,8 +361,9 @@ export namespace Mcp {
 
             // Check for MCP-level errors in the result
             if ("isError" in result && result.isError) {
-              const errorContent = result.content
-                ?.filter((c): c is { type: "text"; text: string } => c.type === "text")
+              const content = "content" in result && Array.isArray(result.content) ? result.content : []
+              const errorContent = content
+                .filter((c): c is { type: "text"; text: string } => c.type === "text")
                 .map((c) => c.text)
                 .join("\n")
               return `Error: ${errorContent || "Tool execution failed"}`
