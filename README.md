@@ -4,6 +4,8 @@ An AI coding agent with **"infinite memory"** — continuous context across sess
 
 *Nuum* — from "continuum" — maintains persistent memory across conversations, learning your codebase, preferences, and decisions over time.
 
+📖 **[How We Solved the Agent Memory Problem](https://www.sanity.io/blog/how-we-solved-the-agent-memory-problem)** — the full technical deep-dive on why agents forget and how Nuum fixes it.
+
 ## Quick Start
 
 ```bash
