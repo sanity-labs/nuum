@@ -23,32 +23,32 @@ import type {
   ToolCallPart,
   ToolResultPart,
   LanguageModel,
-} from "ai"
-import { Provider } from "../provider"
-import { Log } from "../util/log"
+} from 'ai'
+import {Provider} from '../provider'
+import {Log} from '../util/log'
 
-const log = Log.create({ service: "agent-loop" })
+const log = Log.create({service: 'agent-loop'})
 
 /**
  * Add Anthropic cache control markers to messages.
- * 
+ *
  * Follows OpenCode's caching strategy:
  * - Mark the last 3 messages with cache control
  * - Combined with system prompt caching in the provider layer
- * 
+ *
  * Anthropic allows up to 4 cache breakpoints. We use:
  * 1. System prompt (in provider layer)
  * 2-4. Last 3 messages (here)
- * 
+ *
  * The cache is prefix-based, so each breakpoint caches everything
  * up to and including that message.
  */
 function addCacheMarkers(messages: CoreMessage[]): CoreMessage[] {
   if (messages.length === 0) return messages
-  
+
   // Create a copy to avoid mutating the original
   const result = [...messages]
-  
+
   // Mark the last 3 messages (or fewer if not enough messages)
   // This matches OpenCode's approach: i > len(messages)-3
   const startIdx = Math.max(0, messages.length - 3)
@@ -56,11 +56,11 @@ function addCacheMarkers(messages: CoreMessage[]): CoreMessage[] {
     result[i] = {
       ...result[i],
       providerOptions: {
-        anthropic: { cacheControl: { type: "ephemeral" } }
-      }
+        anthropic: {cacheControl: {type: 'ephemeral'}},
+      },
     } as CoreMessage
   }
-  
+
   return result
 }
 
@@ -69,8 +69,8 @@ function addCacheMarkers(messages: CoreMessage[]): CoreMessage[] {
  */
 export class AgentLoopCancelledError extends Error {
   constructor() {
-    super("Agent loop cancelled")
-    this.name = "AgentLoopCancelledError"
+    super('Agent loop cancelled')
+    this.name = 'AgentLoopCancelledError'
   }
 }
 
@@ -105,7 +105,11 @@ export interface AgentLoopOptions {
    * Use this to track metrics, log events, etc.
    * Can be async for logging to storage.
    */
-  onToolResult?: (toolCallId: string, toolName: string, result: string) => void | Promise<void>
+  onToolResult?: (
+    toolCallId: string,
+    toolName: string,
+    result: string,
+  ) => void | Promise<void>
   /**
    * Called when the model produces text output.
    * Can be async for logging to storage.
@@ -115,7 +119,11 @@ export interface AgentLoopOptions {
    * Called when a tool is called (before execution).
    * Can be async for logging to storage.
    */
-  onToolCall?: (toolCallId: string, toolName: string, args: unknown) => void | Promise<void>
+  onToolCall?: (
+    toolCallId: string,
+    toolName: string,
+    args: unknown,
+  ) => void | Promise<void>
   /**
    * Called before each model turn. Can return additional user content to inject.
    * Use this for mid-turn message delivery - messages received while the agent
@@ -149,7 +157,7 @@ export interface AgentLoopResult {
     outputTokens: number
   }
   /** Why the loop stopped */
-  stopReason: "done" | "no_tool_calls" | "max_turns" | "cancelled"
+  stopReason: 'done' | 'no_tool_calls' | 'max_turns' | 'cancelled'
 }
 
 /**
@@ -160,7 +168,9 @@ export interface AgentLoopResult {
  * - No tool calls are made (default isDone behavior)
  * - maxTurns is reached
  */
-export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoopResult> {
+export async function runAgentLoop(
+  options: AgentLoopOptions,
+): Promise<AgentLoopResult> {
   const {
     model,
     systemPrompt,
@@ -183,16 +193,17 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   }
 
   const messages: CoreMessage[] = [...initialMessages]
-  let finalText = ""
+  let finalText = ''
   let turnsUsed = 0
   let totalInputTokens = 0
   let totalOutputTokens = 0
-  let stopReason: "done" | "no_tool_calls" | "max_turns" | "cancelled" = "max_turns"
+  let stopReason: 'done' | 'no_tool_calls' | 'max_turns' | 'cancelled' =
+    'max_turns'
 
   for (let turn = 0; turn < maxTurns; turn++) {
     // Check for cancellation at start of each turn
     if (abortSignal?.aborted) {
-      stopReason = "cancelled"
+      stopReason = 'cancelled'
       throw new AgentLoopCancelledError()
     }
 
@@ -200,10 +211,12 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     const injectedContent = await onBeforeTurn?.()
     if (injectedContent) {
       messages.push({
-        role: "user",
+        role: 'user',
         content: injectedContent,
       })
-      log.info("injected mid-turn user message", { contentLength: injectedContent.length })
+      log.info('injected mid-turn user message', {
+        contentLength: injectedContent.length,
+      })
     }
 
     turnsUsed++
@@ -230,26 +243,27 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     // Note: Anthropic's input_tokens (promptTokens) only counts tokens AFTER the last
     // cache breakpoint. It does NOT include cached tokens. So:
     //   total = cacheRead + cacheWrite + promptTokens
-    const anthropicMeta = response.providerMetadata?.anthropic as {
-      cacheCreationInputTokens?: number
-      cacheReadInputTokens?: number
-    } | undefined
-    
+    const anthropicMeta = response.providerMetadata?.anthropic as
+      | {
+          cacheCreationInputTokens?: number
+          cacheReadInputTokens?: number
+        }
+      | undefined
+
     if (anthropicMeta) {
       const cacheWrite = anthropicMeta.cacheCreationInputTokens ?? 0
       const cacheRead = anthropicMeta.cacheReadInputTokens ?? 0
       const uncached = response.usage.promptTokens // This IS the uncached tokens
       const total = cacheRead + cacheWrite + uncached
-      
-      log.info("token usage", {
+
+      log.info('token usage', {
         input: total,
         output: response.usage.completionTokens,
         cacheWrite,
         cacheRead,
         uncached,
-        cacheHitRate: total > 0 
-          ? `${Math.round((cacheRead / total) * 100)}%`
-          : "0%",
+        cacheHitRate:
+          total > 0 ? `${Math.round((cacheRead / total) * 100)}%` : '0%',
       })
     }
 
@@ -265,7 +279,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       const toolResultParts: ToolResultPart[] = []
 
       if (response.text) {
-        assistantParts.push({ type: "text", text: response.text })
+        assistantParts.push({type: 'text', text: response.text})
       }
 
       // Collect tool call info for isDone check
@@ -276,52 +290,62 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       }))
 
       // Cast toolResults to access the result property
-      const toolResults = response.toolResults as Array<{ toolCallId: string; toolName: string; result: string }> | undefined
+      const toolResults = response.toolResults as
+        | Array<{toolCallId: string; toolName: string; result: string}>
+        | undefined
 
       for (let i = 0; i < response.toolCalls.length; i++) {
         const toolCall = response.toolCalls[i]
 
         assistantParts.push({
-          type: "tool-call",
+          type: 'tool-call',
           toolCallId: toolCall.toolCallId,
           toolName: toolCall.toolName,
           args: toolCall.args,
         })
 
         // Notify about tool call
-        await onToolCall?.(toolCall.toolCallId, toolCall.toolName, toolCall.args)
+        await onToolCall?.(
+          toolCall.toolCallId,
+          toolCall.toolName,
+          toolCall.args,
+        )
 
         // Get the output from toolResults (AI SDK executed the callback)
-        const toolResultOutput = toolResults?.[i]?.result ?? "Error: No result"
+        const toolResultOutput = toolResults?.[i]?.result ?? 'Error: No result'
 
         toolResultParts.push({
-          type: "tool-result",
+          type: 'tool-result',
           toolCallId: toolCall.toolCallId,
           toolName: toolCall.toolName,
           result: toolResultOutput,
         })
 
         // Notify about tool result
-        await onToolResult?.(toolCall.toolCallId, toolCall.toolName, toolResultOutput)
+        await onToolResult?.(
+          toolCall.toolCallId,
+          toolCall.toolName,
+          toolResultOutput,
+        )
       }
 
       // Add assistant message with tool calls
       const assistantMsg: CoreAssistantMessage = {
-        role: "assistant",
+        role: 'assistant',
         content: assistantParts,
       }
       messages.push(assistantMsg)
 
       // Add tool results
       const toolMsg: CoreToolMessage = {
-        role: "tool",
+        role: 'tool',
         content: toolResultParts,
       }
       messages.push(toolMsg)
 
       // Check if we should stop
       if (isDone(toolCallInfos)) {
-        stopReason = "done"
+        stopReason = 'done'
         break
       }
 
@@ -332,7 +356,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
     // No tool calls - add final assistant message and stop
     if (response.text) {
       const assistantMsg: CoreAssistantMessage = {
-        role: "assistant",
+        role: 'assistant',
         content: response.text,
       }
       messages.push(assistantMsg)
@@ -340,7 +364,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
     // Check isDone with empty tool calls (default behavior stops here)
     if (isDone([])) {
-      stopReason = "no_tool_calls"
+      stopReason = 'no_tool_calls'
       break
     }
   }
@@ -360,7 +384,9 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 /**
  * Helper to create an isDone function that stops when a specific tool is called.
  */
-export function stopOnTool(toolName: string): (toolCalls: ToolCallInfo[]) => boolean {
+export function stopOnTool(
+  toolName: string,
+): (toolCalls: ToolCallInfo[]) => boolean {
   return (toolCalls) => toolCalls.some((tc) => tc.toolName === toolName)
 }
 

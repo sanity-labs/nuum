@@ -9,20 +9,20 @@
  * Used by both the main agent (async background) and CLI (--compact).
  */
 
-import type { Storage } from "../storage"
-import { Config } from "../config"
+import type {Storage} from '../storage'
+import {Config} from '../config'
 import {
   shouldTriggerCompaction,
   runCompactionWorker,
   getMessagesToCompact,
   getEffectiveViewTokens,
   type CompactionResult,
-} from "../temporal"
-import { runConsolidationWorker, type ConsolidationResult } from "../ltm"
+} from '../temporal'
+import {runConsolidationWorker, type ConsolidationResult} from '../ltm'
 
 // Re-export types for consumers
-export type { CompactionResult, ConsolidationResult }
-import { activity } from "../util/activity-log"
+export type {CompactionResult, ConsolidationResult}
+import {activity} from '../util/activity-log'
 
 /**
  * Result of a full memory curation run.
@@ -81,34 +81,41 @@ export async function runMemoryCuration(
 ): Promise<MemoryCurationResult> {
   // Prevent concurrent runs
   if (curationInProgress) {
-    return { ran: false }
+    return {ran: false}
   }
 
   const config = Config.get()
-  const threshold = options.compactionThreshold ?? config.tokenBudgets.compactionThreshold
-  const target = options.compactionTarget ?? config.tokenBudgets.compactionTarget
+  const threshold =
+    options.compactionThreshold ?? config.tokenBudgets.compactionThreshold
+  const target =
+    options.compactionTarget ?? config.tokenBudgets.compactionTarget
 
   // Check if we should run (unless forced)
   if (!options.force) {
     const shouldRun = await shouldTriggerCompaction(
       storage.temporal,
       storage.workers,
-      { compactionThreshold: threshold, compactionTarget: target },
+      {compactionThreshold: threshold, compactionTarget: target},
     )
     if (!shouldRun) {
-      return { ran: false }
+      return {ran: false}
     }
   }
 
   curationInProgress = true
-  const result: MemoryCurationResult = { ran: true }
+  const result: MemoryCurationResult = {ran: true}
 
   try {
     // Phase 1: LTM Consolidation
     result.consolidation = await runLTMConsolidation(storage)
 
     // Phase 2: Distillation
-    result.distillation = await runDistillation(storage, threshold, target, options.force)
+    result.distillation = await runDistillation(
+      storage,
+      threshold,
+      target,
+      options.force,
+    )
 
     return result
   } finally {
@@ -119,28 +126,31 @@ export async function runMemoryCuration(
 /**
  * Run LTM consolidation phase.
  */
-async function runLTMConsolidation(storage: Storage): Promise<ConsolidationResult | undefined> {
-  const { messages } = await getMessagesToCompact(storage.temporal)
-  
+async function runLTMConsolidation(
+  storage: Storage,
+): Promise<ConsolidationResult | undefined> {
+  const {messages} = await getMessagesToCompact(storage.temporal)
+
   if (messages.length === 0) {
     return undefined
   }
 
-  activity.ltmCurator.start("Knowledge curation", { messages: messages.length })
+  activity.ltmCurator.start('Knowledge curation', {messages: messages.length})
 
   try {
     const result = await runConsolidationWorker(storage, messages)
 
     if (result.ran) {
-      const changes = result.entriesCreated + result.entriesUpdated + result.entriesArchived
+      const changes =
+        result.entriesCreated + result.entriesUpdated + result.entriesArchived
       if (changes > 0) {
         activity.ltmCurator.complete(
-          `${result.entriesCreated} created, ${result.entriesUpdated} updated, ${result.entriesArchived} archived`
+          `${result.entriesCreated} created, ${result.entriesUpdated} updated, ${result.entriesArchived} archived`,
         )
-        
+
         // File a background report for the main agent to see
         await storage.background.fileReport({
-          subsystem: "ltm_curator",
+          subsystem: 'ltm_curator',
           report: {
             entriesCreated: result.entriesCreated,
             entriesUpdated: result.entriesUpdated,
@@ -150,7 +160,7 @@ async function runLTMConsolidation(storage: Storage): Promise<ConsolidationResul
           },
         })
       } else {
-        activity.ltmCurator.complete("No changes needed")
+        activity.ltmCurator.complete('No changes needed')
       }
     } else {
       activity.ltmCurator.skip(result.summary)
@@ -158,7 +168,9 @@ async function runLTMConsolidation(storage: Storage): Promise<ConsolidationResul
 
     return result
   } catch (error) {
-    activity.ltmCurator.error(error instanceof Error ? error.message : String(error))
+    activity.ltmCurator.error(
+      error instanceof Error ? error.message : String(error),
+    )
     // Non-fatal - continue with distillation
     return undefined
   }
@@ -174,8 +186,8 @@ async function runDistillation(
   force?: boolean,
 ): Promise<CompactionResult | undefined> {
   const tokensBefore = await getEffectiveViewTokens(storage.temporal)
-  
-  activity.distillation.start("Working memory optimization", {
+
+  activity.distillation.start('Working memory optimization', {
     tokens: tokensBefore,
     target,
   })
@@ -190,13 +202,13 @@ async function runDistillation(
     activity.distillation.tokens(
       result.tokensBefore,
       result.tokensAfter,
-      `${result.distillationsCreated} distillations`
+      `${result.distillationsCreated} distillations`,
     )
 
     // File a background report if we actually did work
     if (result.distillationsCreated > 0) {
       await storage.background.fileReport({
-        subsystem: "distillation",
+        subsystem: 'distillation',
         report: {
           tokensBefore: result.tokensBefore,
           tokensAfter: result.tokensAfter,
@@ -208,10 +220,12 @@ async function runDistillation(
 
     return result
   } catch (error) {
-    activity.distillation.error(error instanceof Error ? error.message : String(error))
+    activity.distillation.error(
+      error instanceof Error ? error.message : String(error),
+    )
     return undefined
   }
 }
 
 // Re-export for convenience
-export { getEffectiveViewTokens } from "../temporal"
+export {getEffectiveViewTokens} from '../temporal'

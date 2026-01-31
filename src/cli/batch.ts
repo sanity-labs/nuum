@@ -5,18 +5,28 @@
  * With --verbose, shows memory state and execution trace on stderr.
  */
 
-import { createStorage, initializeDefaultEntries, cleanupStaleWorkers, type Storage } from "../storage"
-import { runAgent, type AgentEvent } from "../agent"
-import { VerboseOutput, type MemoryStats, type TokenBudget, type SummaryOrderStats } from "./verbose"
-import { buildTemporalView } from "../temporal"
-import { getEffectiveViewTokens } from "../memory"
-import { Config } from "../config"
+import {
+  createStorage,
+  initializeDefaultEntries,
+  cleanupStaleWorkers,
+  type Storage,
+} from '../storage'
+import {runAgent, type AgentEvent} from '../agent'
+import {
+  VerboseOutput,
+  type MemoryStats,
+  type TokenBudget,
+  type SummaryOrderStats,
+} from './verbose'
+import {buildTemporalView} from '../temporal'
+import {getEffectiveViewTokens} from '../memory'
+import {Config} from '../config'
 
 export interface BatchOptions {
   prompt: string
   verbose: boolean
   dbPath: string
-  format: "text" | "json"
+  format: 'text' | 'json'
 }
 
 /**
@@ -36,19 +46,22 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   const config = Config.get()
 
   // Get LTM stats
-  const ltmEntries = await storage.ltm.glob("/**")
-  const identity = await storage.ltm.read("identity")
-  const behavior = await storage.ltm.read("behavior")
+  const ltmEntries = await storage.ltm.glob('/**')
+  const identity = await storage.ltm.read('identity')
+  const behavior = await storage.ltm.read('behavior')
 
   // Calculate total message tokens
-  const totalMessageTokens = messages.reduce((sum, m) => sum + m.tokenEstimate, 0)
+  const totalMessageTokens = messages.reduce(
+    (sum, m) => sum + m.tokenEstimate,
+    0,
+  )
 
   // Calculate summary stats by order
   const summariesByOrder: SummaryOrderStats[] = []
-  const orderMap = new Map<number, { count: number; tokens: number }>()
+  const orderMap = new Map<number, {count: number; tokens: number}>()
 
   for (const summary of summaries) {
-    const existing = orderMap.get(summary.orderNum) ?? { count: 0, tokens: 0 }
+    const existing = orderMap.get(summary.orderNum) ?? {count: 0, tokens: 0}
     existing.count++
     existing.tokens += summary.tokenEstimate
     orderMap.set(summary.orderNum, existing)
@@ -77,7 +90,10 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   // Sort by order
   summariesByOrder.sort((a, b) => a.order - b.order)
 
-  const totalSummaryTokens = summaries.reduce((sum, s) => sum + s.tokenEstimate, 0)
+  const totalSummaryTokens = summaries.reduce(
+    (sum, s) => sum + s.tokenEstimate,
+    0,
+  )
 
   return {
     totalMessages: messages.length,
@@ -96,7 +112,10 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
 /**
  * Calculate token budget for verbose output.
  */
-async function calculateTokenBudget(stats: MemoryStats, storage: Storage): Promise<TokenBudget> {
+async function calculateTokenBudget(
+  stats: MemoryStats,
+  storage: Storage,
+): Promise<TokenBudget> {
   const config = Config.get()
   const total = config.tokenBudgets.mainAgentContext
 
@@ -113,13 +132,20 @@ async function calculateTokenBudget(stats: MemoryStats, storage: Storage): Promi
   const systemPrompt = 500 // Base instructions
   const identity = stats.identityTokens
   const behavior = stats.behaviorTokens
-  const temporalSummaries = temporalView.summaries.reduce((sum, s) => sum + s.tokenEstimate, 0)
-  const temporalMessages = temporalView.messages.reduce((sum, m) => sum + m.tokenEstimate, 0)
+  const temporalSummaries = temporalView.summaries.reduce(
+    (sum, s) => sum + s.tokenEstimate,
+    0,
+  )
+  const temporalMessages = temporalView.messages.reduce(
+    (sum, m) => sum + m.tokenEstimate,
+    0,
+  )
   const temporalViewTokens = temporalSummaries + temporalMessages
   const present = 200 // Mission/status/tasks
   const tools = 2000 // Tool descriptions
 
-  const used = systemPrompt + identity + behavior + temporalViewTokens + present + tools
+  const used =
+    systemPrompt + identity + behavior + temporalViewTokens + present + tools
 
   return {
     total,
@@ -170,11 +196,16 @@ export async function runBatch(options: BatchOptions): Promise<void> {
         events.push(event)
         if (options.verbose) {
           // Handle compaction events specially
-          if (event.type === "compaction" && event.compactionResult) {
+          if (event.type === 'compaction' && event.compactionResult) {
             verbose.compaction(event.compactionResult)
-          } else if (event.type !== "compaction" && event.type !== "done") {
+          } else if (event.type !== 'compaction' && event.type !== 'done') {
             verbose.event({
-              type: event.type as "user" | "assistant" | "tool_call" | "tool_result" | "error",
+              type: event.type as
+                | 'user'
+                | 'assistant'
+                | 'tool_call'
+                | 'tool_result'
+                | 'error',
               content: event.content,
             })
           }
@@ -190,15 +221,15 @@ export async function runBatch(options: BatchOptions): Promise<void> {
     }
 
     // Output the response
-    if (options.format === "json") {
+    if (options.format === 'json') {
       const output = {
         response: result.response,
         usage: result.usage,
         events: events.map((e) => ({
           type: e.type,
           content: e.content,
-          ...(e.toolName && { toolName: e.toolName }),
-          ...(e.toolCallId && { toolCallId: e.toolCallId }),
+          ...(e.toolName && {toolName: e.toolName}),
+          ...(e.toolCallId && {toolCallId: e.toolCallId}),
         })),
       }
       console.log(JSON.stringify(output, null, 2))
@@ -209,17 +240,27 @@ export async function runBatch(options: BatchOptions): Promise<void> {
     const err = error as Error
 
     // Handle specific error types
-    if (err.message?.includes("API") || err.message?.includes("rate limit") || err.message?.includes("429")) {
-      verbose.error("API request failed", err)
+    if (
+      err.message?.includes('API') ||
+      err.message?.includes('rate limit') ||
+      err.message?.includes('429')
+    ) {
+      verbose.error('API request failed', err)
       console.error(`Error: API request failed - ${err.message}`)
-    } else if (err.message?.includes("ENOENT") || err.message?.includes("EACCES")) {
-      verbose.error("File system error", err)
+    } else if (
+      err.message?.includes('ENOENT') ||
+      err.message?.includes('EACCES')
+    ) {
+      verbose.error('File system error', err)
       console.error(`Error: File system error - ${err.message}`)
-    } else if (err.message?.includes("database") || err.message?.includes("SQLite")) {
-      verbose.error("Database error", err)
+    } else if (
+      err.message?.includes('database') ||
+      err.message?.includes('SQLite')
+    ) {
+      verbose.error('Database error', err)
       console.error(`Error: Database error - ${err.message}`)
     } else {
-      verbose.error("Unexpected error", err)
+      verbose.error('Unexpected error', err)
       console.error(`Error: ${err.message}`)
     }
 

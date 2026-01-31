@@ -14,10 +14,10 @@
  * - Research best practices or prior art
  */
 
-import { z } from "zod"
-import { Tool } from "./tool"
-import type { Storage } from "../storage"
-import { runResearch } from "../research"
+import {z} from 'zod'
+import {Tool} from './tool'
+import type {Storage} from '../storage'
+import {runResearch} from '../research'
 
 export interface ResearchMetadata {
   topic: string
@@ -45,24 +45,27 @@ Use this when you need to:
 The sub-agent will research thoroughly and return a report of what it learned and what LTM entries it created or updated.`
 
 const parameters = z.object({
-  topic: z.string().describe(
-    "The topic to research. Be specific about what you want to learn. Examples: 'How does Stripe's payment intent API work?', 'Document the authentication flow in our codebase', 'Research best practices for rate limiting'"
-  ),
+  topic: z
+    .string()
+    .describe(
+      "The topic to research. Be specific about what you want to learn. Examples: 'How does Stripe's payment intent API work?', 'Document the authentication flow in our codebase', 'Research best practices for rate limiting'",
+    ),
 })
 
 export const ResearchTool = Tool.define<typeof parameters, ResearchMetadata>(
-  "research",
+  'research',
   {
     description: DESCRIPTION,
     parameters,
-    async execute({ topic }, ctx) {
+    async execute({topic}, ctx) {
       // Get storage from context extra
-      const storage = (ctx as Tool.Context & { extra: { storage: Storage } }).extra?.storage
-      
+      const storage = (ctx as Tool.Context & {extra: {storage: Storage}}).extra
+        ?.storage
+
       if (!storage) {
         return {
-          output: "Error: Storage not available for research",
-          title: "Research failed",
+          output: 'Error: Storage not available for research',
+          title: 'Research failed',
           metadata: {
             topic,
             turnsUsed: 0,
@@ -79,7 +82,7 @@ export const ResearchTool = Tool.define<typeof parameters, ResearchMetadata>(
 
         return {
           output: result.report,
-          title: `Researched: ${topic.slice(0, 40)}${topic.length > 40 ? "..." : ""}`,
+          title: `Researched: ${topic.slice(0, 40)}${topic.length > 40 ? '...' : ''}`,
           metadata: {
             topic,
             turnsUsed: result.turnsUsed,
@@ -93,7 +96,7 @@ export const ResearchTool = Tool.define<typeof parameters, ResearchMetadata>(
         const errorMsg = error instanceof Error ? error.message : String(error)
         return {
           output: `Research failed: ${errorMsg}`,
-          title: "Research error",
+          title: 'Research error',
           metadata: {
             topic,
             turnsUsed: 0,

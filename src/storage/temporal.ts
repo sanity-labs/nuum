@@ -5,8 +5,8 @@
  * Messages are append-only. Summaries are immutable once created.
  */
 
-import { eq, and, gte, lte, desc, asc, sql } from "drizzle-orm"
-import type { DrizzleDB } from "./db"
+import {eq, and, gte, lte, desc, asc, sql} from 'drizzle-orm'
+import type {DrizzleDB} from './db'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzleDB = any
@@ -18,18 +18,18 @@ import {
   type TemporalMessageInsert,
   type TemporalSummary,
   type TemporalSummaryInsert,
-} from "./schema"
-import { Log } from "../util/log"
+} from './schema'
+import {Log} from '../util/log'
 
-const log = Log.create({ service: "temporal-storage" })
+const log = Log.create({service: 'temporal-storage'})
 
 export interface TemporalSearchParams {
   query?: string
   fromId?: string
   toId?: string
-  type?: TemporalMessage["type"][]
+  type?: TemporalMessage['type'][]
   tags?: string[]
-  tagMode?: "all" | "any"
+  tagMode?: 'all' | 'any'
 }
 
 export interface TemporalSearchResult {
@@ -43,8 +43,8 @@ export interface TemporalSearchResult {
 export interface FTSSearchResult {
   id: string
   type: string
-  snippet: string  // Highlighted snippet around match
-  rank: number     // FTS5 relevance rank (lower is better)
+  snippet: string // Highlighted snippet around match
+  rank: number // FTS5 relevance rank (lower is better)
 }
 
 /**
@@ -52,8 +52,8 @@ export interface FTSSearchResult {
  */
 export interface MessageWithContextParams {
   id: string
-  contextBefore?: number  // Number of messages before
-  contextAfter?: number   // Number of messages after
+  contextBefore?: number // Number of messages before
+  contextAfter?: number // Number of messages after
 }
 
 export interface TemporalStorage {
@@ -61,7 +61,9 @@ export interface TemporalStorage {
   createSummary(summary: TemporalSummaryInsert): Promise<void>
   getMessages(from?: string, to?: string): Promise<TemporalMessage[]>
   getMessage(id: string): Promise<TemporalMessage | null>
-  getMessageWithContext(params: MessageWithContextParams): Promise<TemporalMessage[]>
+  getMessageWithContext(
+    params: MessageWithContextParams,
+  ): Promise<TemporalMessage[]>
   getSummaries(order?: number): Promise<TemporalSummary[]>
   getHighestOrderSummaries(): Promise<TemporalSummary[]>
   search(params: TemporalSearchParams): Promise<TemporalSearchResult>
@@ -71,7 +73,9 @@ export interface TemporalStorage {
   getLastSummaryEndId(): Promise<string | null>
 }
 
-export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalStorage {
+export function createTemporalStorage(
+  db: DrizzleDB | AnyDrizzleDB,
+): TemporalStorage {
   return {
     async appendMessage(msg: TemporalMessageInsert): Promise<void> {
       await db.insert(temporalMessages).values(msg)
@@ -106,9 +110,11 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
       return result[0] ?? null
     },
 
-    async getMessageWithContext(params: MessageWithContextParams): Promise<TemporalMessage[]> {
-      const { id, contextBefore = 0, contextAfter = 0 } = params
-      
+    async getMessageWithContext(
+      params: MessageWithContextParams,
+    ): Promise<TemporalMessage[]> {
+      const {id, contextBefore = 0, contextAfter = 0} = params
+
       // Get the target message first to verify it exists
       const target = await this.getMessage(id)
       if (!target) return []
@@ -168,7 +174,7 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
       if (allSummaries.length === 0) return []
 
       // Track which ULID ranges are covered by higher-order summaries
-      const coveredRanges: Array<{ startId: string; endId: string }> = []
+      const coveredRanges: Array<{startId: string; endId: string}> = []
       const result: TemporalSummary[] = []
 
       for (const summary of allSummaries) {
@@ -180,7 +186,7 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
 
         if (!isSubsumed) {
           result.push(summary)
-          coveredRanges.push({ startId: summary.startId, endId: summary.endId })
+          coveredRanges.push({startId: summary.startId, endId: summary.endId})
         }
       }
 
@@ -221,7 +227,7 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
         if (
           params.type &&
           params.type.length > 0 &&
-          !params.type.includes(msg.type as TemporalMessage["type"])
+          !params.type.includes(msg.type as TemporalMessage['type'])
         ) {
           continue
         }
@@ -262,9 +268,9 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
         // Tag filter
         if (params.tags && params.tags.length > 0) {
           const summaryTags = JSON.parse(summary.tags) as string[]
-          const tagMode = params.tagMode ?? "any"
+          const tagMode = params.tagMode ?? 'any'
 
-          if (tagMode === "all") {
+          if (tagMode === 'all') {
             if (!params.tags.every((tag) => summaryTags.includes(tag))) {
               continue
             }
@@ -279,26 +285,31 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
         expandable.push(summary.id)
       }
 
-      return { matches, expandable }
+      return {matches, expandable}
     },
 
-    async searchFTS(query: string, limit: number = 20): Promise<FTSSearchResult[]> {
+    async searchFTS(
+      query: string,
+      limit: number = 20,
+    ): Promise<FTSSearchResult[]> {
       // Use FTS5 MATCH with snippet() for highlighted excerpts
-      // 
+      //
       // Split query into words and join with OR for flexible matching
       // This finds messages containing ANY of the search terms, ranked by relevance
       // FTS5's BM25 ranking will prioritize messages with more matching terms
       const words = query
         .split(/\s+/)
-        .filter(w => w.length > 0)
-        .map(w => `"${w.replace(/"/g, '""')}"`) // Quote each word to escape special chars
+        .filter((w) => w.length > 0)
+        .map((w) => `"${w.replace(/"/g, '""')}"`) // Quote each word to escape special chars
         .join(' OR ')
-      
+
       if (!words) {
         return []
       }
-      
-      const results = await db._rawDb.prepare(`
+
+      const results = (await db._rawDb
+        .prepare(
+          `
         SELECT 
           id,
           type,
@@ -308,9 +319,16 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
         WHERE temporal_messages_fts MATCH ?
         ORDER BY rank
         LIMIT ?
-      `).all(words, limit) as Array<{ id: string; type: string; snippet: string; rank: number }>
+      `,
+        )
+        .all(words, limit)) as Array<{
+        id: string
+        type: string
+        snippet: string
+        rank: number
+      }>
 
-      return results.map(r => ({
+      return results.map((r) => ({
         id: r.id,
         type: r.type,
         snippet: r.snippet,
@@ -348,7 +366,7 @@ export function createTemporalStorage(db: DrizzleDB | AnyDrizzleDB): TemporalSto
       // Find the summary with the highest endId
       // (This is the most recent content that has been summarized)
       const result = await db
-        .select({ endId: temporalSummaries.endId })
+        .select({endId: temporalSummaries.endId})
         .from(temporalSummaries)
         .orderBy(desc(temporalSummaries.endId))
         .limit(1)

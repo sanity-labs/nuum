@@ -7,10 +7,10 @@
  * Basic file reading with line numbers.
  */
 
-import { z } from "zod"
-import * as fs from "fs"
-import * as path from "path"
-import { Tool } from "./tool"
+import {z} from 'zod'
+import * as fs from 'fs'
+import * as path from 'path'
+import {Tool} from './tool'
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -28,7 +28,7 @@ export const ReadTool = Tool.define<
     limit: z.ZodOptional<z.ZodNumber>
   }>,
   ReadMetadata
->("read", {
+>('read', {
   description: `Read a file from the filesystem.
 
 Returns file contents with line numbers. Use offset and limit for large files.
@@ -38,14 +38,14 @@ Returns file contents with line numbers. Use offset and limit for large files.
 - Binary files are rejected`,
 
   parameters: z.object({
-    filePath: z.string().describe("The absolute path to the file to read"),
+    filePath: z.string().describe('The absolute path to the file to read'),
     offset: z
       .number()
-      .describe("Line number to start reading from (0-based)")
+      .describe('Line number to start reading from (0-based)')
       .optional(),
     limit: z
       .number()
-      .describe("Number of lines to read (default: 2000)")
+      .describe('Number of lines to read (default: 2000)')
       .optional(),
   }),
 
@@ -59,9 +59,9 @@ Returns file contents with line numbers. Use offset and limit for large files.
 
     // Request permission (auto-approved in Phase 1)
     await ctx.ask({
-      permission: "read",
+      permission: 'read',
       patterns: [filepath],
-      always: ["*"],
+      always: ['*'],
       metadata: {},
     })
 
@@ -82,7 +82,7 @@ Returns file contents with line numbers. Use offset and limit for large files.
 
         if (suggestions.length > 0) {
           throw new Error(
-            `File not found: ${filepath}\n\nDid you mean one of these?\n${suggestions.join("\n")}`,
+            `File not found: ${filepath}\n\nDid you mean one of these?\n${suggestions.join('\n')}`,
           )
         }
       } catch {
@@ -102,8 +102,8 @@ Returns file contents with line numbers. Use offset and limit for large files.
       throw new Error(`Cannot read binary file: ${filepath}`)
     }
 
-    const content = fs.readFileSync(filepath, "utf-8")
-    const lines = content.split("\n")
+    const content = fs.readFileSync(filepath, 'utf-8')
+    const lines = content.split('\n')
 
     const limit = params.limit ?? DEFAULT_READ_LIMIT
     const offset = params.offset || 0
@@ -115,9 +115,9 @@ Returns file contents with line numbers. Use offset and limit for large files.
     for (let i = offset; i < Math.min(lines.length, offset + limit); i++) {
       const line =
         lines[i].length > MAX_LINE_LENGTH
-          ? lines[i].substring(0, MAX_LINE_LENGTH) + "..."
+          ? lines[i].substring(0, MAX_LINE_LENGTH) + '...'
           : lines[i]
-      const size = Buffer.byteLength(line, "utf-8") + (raw.length > 0 ? 1 : 0)
+      const size = Buffer.byteLength(line, 'utf-8') + (raw.length > 0 ? 1 : 0)
       if (bytes + size > MAX_BYTES) {
         truncatedByBytes = true
         break
@@ -127,13 +127,13 @@ Returns file contents with line numbers. Use offset and limit for large files.
     }
 
     const numbered = raw.map((line, index) => {
-      return `${(index + offset + 1).toString().padStart(5, " ")}\t${line}`
+      return `${(index + offset + 1).toString().padStart(5, ' ')}\t${line}`
     })
 
-    const preview = raw.slice(0, 20).join("\n")
+    const preview = raw.slice(0, 20).join('\n')
 
-    let output = "<file>\n"
-    output += numbered.join("\n")
+    let output = '<file>\n'
+    output += numbered.join('\n')
 
     const totalLines = lines.length
     const lastReadLine = offset + raw.length
@@ -147,7 +147,7 @@ Returns file contents with line numbers. Use offset and limit for large files.
     } else {
       output += `\n\n(End of file - total ${totalLines} lines)`
     }
-    output += "\n</file>"
+    output += '\n</file>'
 
     return {
       title,
@@ -165,11 +165,46 @@ function isBinaryFile(filepath: string): boolean {
 
   // Known binary extensions
   const binaryExtensions = new Set([
-    ".zip", ".tar", ".gz", ".exe", ".dll", ".so", ".class", ".jar",
-    ".war", ".7z", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".odt", ".ods", ".odp", ".bin", ".dat", ".obj", ".o", ".a",
-    ".lib", ".wasm", ".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif",
-    ".bmp", ".ico", ".webp", ".mp3", ".mp4", ".avi", ".mov", ".pdf",
+    '.zip',
+    '.tar',
+    '.gz',
+    '.exe',
+    '.dll',
+    '.so',
+    '.class',
+    '.jar',
+    '.war',
+    '.7z',
+    '.doc',
+    '.docx',
+    '.xls',
+    '.xlsx',
+    '.ppt',
+    '.pptx',
+    '.odt',
+    '.ods',
+    '.odp',
+    '.bin',
+    '.dat',
+    '.obj',
+    '.o',
+    '.a',
+    '.lib',
+    '.wasm',
+    '.pyc',
+    '.pyo',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.bmp',
+    '.ico',
+    '.webp',
+    '.mp3',
+    '.mp4',
+    '.avi',
+    '.mov',
+    '.pdf',
   ])
 
   if (binaryExtensions.has(ext)) {
@@ -178,7 +213,7 @@ function isBinaryFile(filepath: string): boolean {
 
   // Check file content for binary markers
   try {
-    const fd = fs.openSync(filepath, "r")
+    const fd = fs.openSync(filepath, 'r')
     const buffer = Buffer.alloc(4096)
     const bytesRead = fs.readSync(fd, buffer, 0, 4096, 0)
     fs.closeSync(fd)
