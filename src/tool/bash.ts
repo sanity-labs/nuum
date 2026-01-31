@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/tool/bash.ts
  * License: MIT
  *
- * Simplified for miriad-code: removed tree-sitter parsing, Instance dependency.
+ * Simplified for nuum: removed tree-sitter parsing, Instance dependency.
  * Basic bash execution with timeout and abort support.
  */
 

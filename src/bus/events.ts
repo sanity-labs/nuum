@@ -1,5 +1,5 @@
 /**
- * Event definitions for miriad-code
+ * Event definitions for nuum
  *
  * Memory pattern inspired by Letta (https://github.com/letta-ai/letta)
  * Event bus pattern adapted from OpenCode (https://github.com/sst/opencode)
@@ -9,7 +9,7 @@ import {z} from 'zod'
 import {BusEvent} from './event'
 
 /**
- * Events namespace containing all miriad-code event definitions.
+ * Events namespace containing all nuum event definitions.
  * See arch spec "Event Coordination" section.
  */
 export namespace Events {

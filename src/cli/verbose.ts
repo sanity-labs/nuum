@@ -1,5 +1,5 @@
 /**
- * Verbose output formatting for miriad-code
+ * Verbose output formatting for nuum
  *
  * Outputs structured debugging info to stderr, keeping stdout clean.
  * Uses colors for visual clarity when running in a TTY.

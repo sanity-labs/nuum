@@ -1,5 +1,5 @@
 /**
- * AI Provider integration for miriad-code
+ * AI Provider integration for nuum
  *
  * Phase 1: Anthropic-only via @ai-sdk/anthropic
  * Simplified from OpenCode's multi-provider system.

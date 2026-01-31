@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * miriad-code CLI entry point
+ * nuum CLI entry point
  *
- * Phase 1 deliverable: `miriad-code -p "prompt" --verbose`
- * Phase 2.1: `miriad-code --inspect` and `miriad-code --dump`
- * Phase 3a: `miriad-code --stdio` for JSON-RPC mode
+ * Phase 1 deliverable: `nuum -p "prompt" --verbose`
+ * Phase 2.1: `nuum --inspect` and `nuum --dump`
+ * Phase 3a: `nuum --stdio` for JSON-RPC mode
  */
 
 import {parseArgs} from 'util'
@@ -71,14 +71,14 @@ ${VERSION_STRING}
 A coding agent with persistent memory
 
 Usage:
-  miriad-code -p "prompt"           Run agent with a prompt
-  miriad-code -p "prompt" --verbose Show debug output
-  miriad-code --repl                Start interactive REPL mode
-  miriad-code --stdio               Start protocol server over stdin/stdout
-  miriad-code --inspect             Show memory stats (no LLM call)
-  miriad-code --dump                Show raw system prompt (no LLM call)
-  miriad-code --compact             Force run compaction (distillation)
-  miriad-code --help                Show this help
+  nuum -p "prompt"           Run agent with a prompt
+  nuum -p "prompt" --verbose Show debug output
+  nuum --repl                Start interactive REPL mode
+  nuum --stdio               Start protocol server over stdin/stdout
+  nuum --inspect             Show memory stats (no LLM call)
+  nuum --dump                Show raw system prompt (no LLM call)
+  nuum --compact             Force run compaction (distillation)
+  nuum --help                Show this help
 
 Options:
   -p, --prompt <text>   The prompt to send to the agent
@@ -115,14 +115,14 @@ JSON-RPC Mode (--stdio):
   Methods: run, cancel, status
 
 Examples:
-  miriad-code -p "What files are in src/"
-  miriad-code -p "Refactor the auth module" --verbose
-  miriad-code --repl
-  miriad-code --repl --db ./project.db
-  miriad-code -p "List todos" --format=json
-  miriad-code --inspect --db ./my-agent.db
-  miriad-code --dump
-  miriad-code --stdio --db ./agent.db
+  nuum -p "What files are in src/"
+  nuum -p "Refactor the auth module" --verbose
+  nuum --repl
+  nuum --repl --db ./project.db
+  nuum -p "List todos" --format=json
+  nuum --inspect --db ./my-agent.db
+  nuum --dump
+  nuum --stdio --db ./agent.db
 `)
 }
 

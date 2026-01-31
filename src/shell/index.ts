@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/shell/shell.ts
  * License: MIT
  *
- * Simplified for miriad-code: removed Flag dependency, cross-platform shell detection.
+ * Simplified for nuum: removed Flag dependency, cross-platform shell detection.
  */
 
 import {spawn, type ChildProcess} from 'child_process'

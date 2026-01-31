@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/id/id.ts
  * License: MIT
  *
- * Modified prefixes for miriad-code entity types.
+ * Modified prefixes for nuum entity types.
  */
 
 import {z} from 'zod'

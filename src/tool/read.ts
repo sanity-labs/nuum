@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/tool/read.ts
  * License: MIT
  *
- * Simplified for miriad-code: removed LSP/FileTime/Instance dependencies.
+ * Simplified for nuum: removed LSP/FileTime/Instance dependencies.
  * Basic file reading with line numbers.
  */
 

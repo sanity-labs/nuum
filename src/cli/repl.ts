@@ -1,5 +1,5 @@
 /**
- * REPL mode for miriad-code
+ * REPL mode for nuum
  *
  * Human-friendly interactive mode with:
  * - Proper readline (history, arrow keys, Ctrl+R)

@@ -1,5 +1,5 @@
 /**
- * Configuration for miriad-code
+ * Configuration for nuum
  *
  * Phase 1: Simple env-based config with sensible defaults.
  * Only ANTHROPIC_API_KEY is required.

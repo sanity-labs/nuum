@@ -1,5 +1,5 @@
 /**
- * Database migration system for miriad-code.
+ * Database migration system for nuum.
  *
  * Runs SQL migrations on startup to evolve the schema over time.
  * Migrations are idempotent - safe to run multiple times.
