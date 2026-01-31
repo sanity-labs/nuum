@@ -13,6 +13,7 @@ import {runInspect, runDump, runCompact} from './inspect'
 import {runServer} from '../jsonrpc'
 import {runRepl} from './repl'
 import {VERSION_STRING} from '../version'
+import {Log} from '../util/log'
 
 interface CliOptions {
   prompt: string | undefined
@@ -125,6 +126,11 @@ Examples:
 
 async function main(): Promise<void> {
   const options = parseCliArgs()
+
+  // Enable verbose logging only when --verbose is passed
+  if (options.verbose) {
+    Log.setLevel('DEBUG')
+  }
 
   if (options.help) {
     printHelp()

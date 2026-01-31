@@ -29,7 +29,8 @@ export namespace Log {
     ERROR: (s) => pc.bold(pc.red(s)),
   }
 
-  let level: Level = 'INFO'
+  // Default to WARN so INFO logs don't appear unless verbose mode is enabled
+  let level: Level = 'WARN'
 
   function shouldLog(input: Level): boolean {
     return levelPriority[input] >= levelPriority[level]
