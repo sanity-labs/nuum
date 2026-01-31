@@ -17,10 +17,11 @@ import * as readline from 'readline'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import {Server, type ServerOptions} from '../jsonrpc'
+import {Server} from '../jsonrpc'
 import {runInspect, runDump} from './inspect'
 import {pc, styles} from '../util/colors'
 import {renderMarkdown} from '../util/markdown'
+import {out, err} from './output'
 
 const PROMPT = pc.cyan('nuum') + pc.dim('> ')
 const HISTORY_FILE = path.join(os.homedir(), '.miriad-code-history')
@@ -79,14 +80,12 @@ export class ReplSession {
       if (this.isRunning) {
         // Cancel current request via server
         this.server.interrupt()
-        process.stdout.write(
-          '\n' + styles.warning('^C - Request cancelled') + '\n',
-        )
+        out.line()
+        out.line(styles.warning('^C - Request cancelled'))
       } else {
         // Show hint
-        process.stdout.write(
-          '\n' + pc.dim('(Use /quit or Ctrl+D to exit)') + '\n',
-        )
+        out.line()
+        out.line(pc.dim('(Use /quit or Ctrl+D to exit)'))
         this.rl?.prompt()
       }
     })
@@ -94,14 +93,15 @@ export class ReplSession {
     // Handle Ctrl+D (close)
     this.rl.on('close', () => {
       this.saveHistory()
-      console.log('\n' + pc.dim('Goodbye!'))
+      out.line()
+      out.line(pc.dim('Goodbye!'))
       this.server.shutdown('user exit')
     })
 
     // Handle input
     this.rl.on('line', (line) => {
       this.handleLine(line).catch((error) => {
-        console.error(
+        err.line(
           styles.error(
             `Error: ${error instanceof Error ? error.message : String(error)}`,
           ),
@@ -119,10 +119,10 @@ export class ReplSession {
    * Print welcome message.
    */
   private printWelcome(): void {
-    console.log()
-    console.log(pc.bold(pc.cyan('nuum')) + ' ' + pc.dim('interactive mode'))
-    console.log(pc.dim('Type /help for commands, /quit to exit'))
-    console.log()
+    out.blank()
+    out.line(pc.bold(pc.cyan('nuum')) + ' ' + pc.dim('interactive mode'))
+    out.line(pc.dim('Type /help for commands, /quit to exit'))
+    out.blank()
   }
 
   /**
@@ -160,7 +160,7 @@ export class ReplSession {
       case 'exit':
       case 'q':
         this.saveHistory()
-        console.log(pc.dim('Goodbye!'))
+        out.line(pc.dim('Goodbye!'))
         this.server.shutdown('user exit')
         break
 
@@ -168,7 +168,7 @@ export class ReplSession {
         try {
           await runInspect(this.options.dbPath)
         } catch (error) {
-          console.error(
+          err.line(
             styles.error(
               `Error: ${error instanceof Error ? error.message : String(error)}`,
             ),
@@ -181,7 +181,7 @@ export class ReplSession {
         try {
           await runDump(this.options.dbPath)
         } catch (error) {
-          console.error(
+          err.line(
             styles.error(
               `Error: ${error instanceof Error ? error.message : String(error)}`,
             ),
@@ -198,8 +198,8 @@ export class ReplSession {
         break
 
       default:
-        console.log(styles.warning(`Unknown command: /${command}`))
-        console.log(pc.dim('Type /help for available commands.'))
+        out.line(styles.warning(`Unknown command: /${command}`))
+        out.line(pc.dim('Type /help for available commands.'))
         this.rl?.prompt()
     }
   }
@@ -208,33 +208,33 @@ export class ReplSession {
    * Print help message.
    */
   private printHelp(): void {
-    console.log()
-    console.log(styles.header('Commands'))
-    console.log(
+    out.blank()
+    out.line(styles.header('Commands'))
+    out.line(
       `  ${pc.cyan('/help')}, ${pc.cyan('/h')}, ${pc.cyan('/?')}    ${pc.dim('Show this help')}`,
     )
-    console.log(
+    out.line(
       `  ${pc.cyan('/quit')}, ${pc.cyan('/exit')}, ${pc.cyan('/q')} ${pc.dim('Exit the REPL')}`,
     )
-    console.log(
+    out.line(
       `  ${pc.cyan('/inspect')}         ${pc.dim('Show memory statistics')}`,
     )
-    console.log(
+    out.line(
       `  ${pc.cyan('/dump')}            ${pc.dim('Show full system prompt')}`,
     )
-    console.log()
-    console.log(styles.header('Shortcuts'))
-    console.log(
+    out.blank()
+    out.line(styles.header('Shortcuts'))
+    out.line(
       `  ${pc.yellow('Ctrl+C')}           ${pc.dim('Cancel current request')}`,
     )
-    console.log(`  ${pc.yellow('Ctrl+D')}           ${pc.dim('Exit')}`)
-    console.log(
+    out.line(`  ${pc.yellow('Ctrl+D')}           ${pc.dim('Exit')}`)
+    out.line(
       `  ${pc.yellow('Up/Down arrows')}   ${pc.dim('Navigate history')}`,
     )
-    console.log(
+    out.line(
       `  ${pc.yellow('Ctrl+R')}           ${pc.dim('Reverse history search')}`,
     )
-    console.log()
+    out.blank()
   }
 
   /**
@@ -242,16 +242,22 @@ export class ReplSession {
    */
   private async runPrompt(prompt: string): Promise<void> {
     this.isRunning = true
+    this.lastOutputType = 'none'
 
     try {
+      // Add blank line before agent response
+      out.blank()
       // Send message to server (it handles everything)
       await this.server.sendUserMessage(prompt)
     } finally {
       this.isRunning = false
-      console.log()
+      out.blank()
       this.rl?.prompt()
     }
   }
+
+  // Track what was last output to manage spacing
+  private lastOutputType: 'none' | 'text' | 'tool' = 'none'
 
   /**
    * Handle output messages from the server.
@@ -274,15 +280,25 @@ export class ReplSession {
         if (assistantMsg?.content) {
           for (const block of assistantMsg.content) {
             if (block.type === 'text' && block.text) {
+              // Add blank line before text if we were showing tool output
+              if (this.lastOutputType === 'tool') {
+                out.blank()
+              }
               // Render markdown in assistant text output
-              process.stdout.write(renderMarkdown(block.text))
+              out.write(renderMarkdown(block.text))
+              this.lastOutputType = 'text'
             } else if (block.type === 'tool_use' && block.name) {
+              // Add blank line before tool call if we were outputting text
+              if (this.lastOutputType === 'text') {
+                out.blank()
+              }
               // Show tool call as progress indicator
               const displayName = this.formatToolName(block.name)
               const args = this.formatToolArgs(block.input)
-              process.stdout.write(
-                `\n${pc.dim('[')}${styles.tool(displayName)}${pc.dim(args + '...]')}\n`,
+              out.line(
+                `${pc.dim('[')}${styles.tool(displayName)}${pc.dim(args + '...]')}`,
               )
+              this.lastOutputType = 'tool'
             }
           }
         }
@@ -299,9 +315,8 @@ export class ReplSession {
             // Don't show raw tool results - they're verbose
             break
           case 'error':
-            process.stdout.write(
-              `\n${styles.error('[Error: ' + (msg as {message?: string}).message + ']')}\n`,
-            )
+            out.blank()
+            out.line(styles.error('[Error: ' + (msg as {message?: string}).message + ']'))
             break
           case 'consolidation': {
             const changes =
@@ -309,9 +324,8 @@ export class ReplSession {
               ((msg as {entries_updated?: number}).entries_updated ?? 0) +
               ((msg as {entries_archived?: number}).entries_archived ?? 0)
             if (changes > 0) {
-              process.stdout.write(
-                `\n${pc.dim('[LTM updated: ' + changes + ' change(s)]')}\n`,
-              )
+              out.blank()
+              out.line(pc.dim('[LTM updated: ' + changes + ' change(s)]'))
             }
             break
           }

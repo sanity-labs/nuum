@@ -21,6 +21,7 @@ import {
 import {buildTemporalView} from '../temporal'
 import {getEffectiveViewTokens} from '../memory'
 import {Config} from '../config'
+import {out} from './output'
 
 export interface BatchOptions {
   prompt: string
@@ -232,38 +233,12 @@ export async function runBatch(options: BatchOptions): Promise<void> {
           ...(e.toolCallId && {toolCallId: e.toolCallId}),
         })),
       }
-      console.log(JSON.stringify(output, null, 2))
+      out.line(JSON.stringify(output, null, 2))
     } else {
-      console.log(result.response)
+      out.line(result.response)
     }
   } catch (error) {
-    const err = error as Error
-
-    // Handle specific error types
-    if (
-      err.message?.includes('API') ||
-      err.message?.includes('rate limit') ||
-      err.message?.includes('429')
-    ) {
-      verbose.error('API request failed', err)
-      console.error(`Error: API request failed - ${err.message}`)
-    } else if (
-      err.message?.includes('ENOENT') ||
-      err.message?.includes('EACCES')
-    ) {
-      verbose.error('File system error', err)
-      console.error(`Error: File system error - ${err.message}`)
-    } else if (
-      err.message?.includes('database') ||
-      err.message?.includes('SQLite')
-    ) {
-      verbose.error('Database error', err)
-      console.error(`Error: Database error - ${err.message}`)
-    } else {
-      verbose.error('Unexpected error', err)
-      console.error(`Error: ${err.message}`)
-    }
-
-    process.exit(1)
+    // Let the error bubble up to be handled by the CLI entry point
+    throw error
   }
 }

@@ -10,11 +10,12 @@
  */
 
 import {createStorage, initializeDefaultEntries, type Storage} from '../storage'
-import {buildTemporalView, reconstructHistoryAsTurns} from '../temporal'
+import {buildTemporalView} from '../temporal'
 import {runMemoryCuration, getEffectiveViewTokens} from '../memory'
 import {buildAgentContext} from '../context'
 import {Config} from '../config'
-import {pc, styles, progressBar} from '../util/colors'
+import {pc, styles} from '../util/colors'
+import {out} from './output'
 import type {CoreMessage} from 'ai'
 
 const SEPARATOR = styles.separator('═'.repeat(70))
@@ -278,76 +279,76 @@ export async function runInspect(dbPath: string): Promise<void> {
   const stats = await getMemoryStats(storage)
   const ltmTree = await buildLTMTree(storage)
 
-  console.log()
-  console.log(SEPARATOR)
-  console.log(styles.header('LONG-TERM MEMORY TREE'))
-  console.log(SEPARATOR)
-  console.log()
+  out.blank()
+  out.line(SEPARATOR)
+  out.line(styles.header('LONG-TERM MEMORY TREE'))
+  out.line(SEPARATOR)
+  out.blank()
 
   if (ltmTree.length > 0) {
-    console.log(renderLTMTree(ltmTree))
+    out.line(renderLTMTree(ltmTree))
   } else {
-    console.log(pc.dim('(no entries)'))
+    out.line(pc.dim('(no entries)'))
   }
 
-  console.log()
+  out.blank()
   const archivedCount = stats.ltmTotalEntries - stats.ltmActiveEntries
-  console.log(
+  out.line(
     `${styles.label('Total:')} ${fmt(stats.ltmActiveEntries)} active${archivedCount > 0 ? `, ${fmt(archivedCount)} archived` : ''} (${fmt(stats.ltmTotalTokens)} tokens)`,
   )
 
-  console.log()
-  console.log(SEPARATOR)
-  console.log(styles.header('TEMPORAL MEMORY'))
-  console.log(SEPARATOR)
-  console.log()
+  out.blank()
+  out.line(SEPARATOR)
+  out.line(styles.header('TEMPORAL MEMORY'))
+  out.line(SEPARATOR)
+  out.blank()
 
-  console.log(
+  out.line(
     `${styles.label('Messages:')} ${fmt(stats.totalMessages)} (${fmt(stats.totalMessageTokens)} tokens)`,
   )
 
   if (stats.summariesByOrder.length > 0) {
-    console.log(`${styles.label('Summaries:')}`)
+    out.line(`${styles.label('Summaries:')}`)
     for (const orderStats of stats.summariesByOrder) {
-      console.log(
+      out.line(
         `  ${pc.dim(`Order-${orderStats.order}:`)} ${fmt(orderStats.count)} (${fmt(orderStats.totalTokens)} tokens)`,
       )
     }
   } else {
-    console.log(`${styles.label('Summaries:')} ${pc.dim('none')}`)
+    out.line(`${styles.label('Summaries:')} ${pc.dim('none')}`)
   }
 
-  console.log()
+  out.blank()
   const needsCompaction = stats.viewTotalTokens > stats.compactionThreshold
   const compactionStatus = needsCompaction
     ? styles.warning(' (compaction needed)')
     : ''
-  console.log(
+  out.line(
     `${styles.label('Effective view')} ${pc.dim('(what goes to agent)')}:`,
   )
-  console.log(
+  out.line(
     `  ${styles.label('Summaries:')} ${fmt(stats.viewSummaryCount)} (${fmt(stats.viewSummaryTokens)} tokens)`,
   )
-  console.log(
+  out.line(
     `  ${styles.label('Messages:')} ${fmt(stats.viewMessageCount)} (${fmt(stats.viewMessageTokens)} tokens)`,
   )
-  console.log(
+  out.line(
     `  ${styles.label('Total:')} ${fmt(stats.viewTotalTokens)} / ${fmt(stats.compactionThreshold)} threshold${compactionStatus}`,
   )
-  console.log(
+  out.line(
     `  ${styles.label('Target:')} ${fmt(stats.compactionTarget)} tokens`,
   )
 
-  console.log()
-  console.log(SEPARATOR)
-  console.log(styles.header('PRESENT STATE'))
-  console.log(SEPARATOR)
-  console.log()
+  out.blank()
+  out.line(SEPARATOR)
+  out.line(styles.header('PRESENT STATE'))
+  out.line(SEPARATOR)
+  out.blank()
 
-  console.log(
+  out.line(
     `${styles.label('Mission:')} ${stats.mission ?? pc.dim('(none)')}`,
   )
-  console.log(`${styles.label('Status:')} ${stats.status ?? pc.dim('(none)')}`)
+  out.line(`${styles.label('Status:')} ${stats.status ?? pc.dim('(none)')}`)
 
   const totalTasks =
     stats.tasksPending +
@@ -355,24 +356,24 @@ export async function runInspect(dbPath: string): Promise<void> {
     stats.tasksCompleted +
     stats.tasksBlocked
   if (totalTasks > 0) {
-    console.log(`${styles.label('Tasks:')} ${fmt(totalTasks)} total`)
+    out.line(`${styles.label('Tasks:')} ${fmt(totalTasks)} total`)
     if (stats.tasksPending > 0)
-      console.log(`  ${pc.dim('Pending:')} ${fmt(stats.tasksPending)}`)
+      out.line(`  ${pc.dim('Pending:')} ${fmt(stats.tasksPending)}`)
     if (stats.tasksInProgress > 0)
-      console.log(
+      out.line(
         `  ${styles.warning('In progress:')} ${fmt(stats.tasksInProgress)}`,
       )
     if (stats.tasksCompleted > 0)
-      console.log(
+      out.line(
         `  ${styles.success('Completed:')} ${fmt(stats.tasksCompleted)}`,
       )
     if (stats.tasksBlocked > 0)
-      console.log(`  ${styles.error('Blocked:')} ${fmt(stats.tasksBlocked)}`)
+      out.line(`  ${styles.error('Blocked:')} ${fmt(stats.tasksBlocked)}`)
   } else {
-    console.log(`${styles.label('Tasks:')} ${pc.dim('none')}`)
+    out.line(`${styles.label('Tasks:')} ${pc.dim('none')}`)
   }
 
-  console.log()
+  out.blank()
 }
 
 /**
@@ -449,39 +450,39 @@ export async function runDump(dbPath: string): Promise<void> {
   const totalTokens = systemTokens + conversationTokens
 
   // Header with stats
-  console.log()
-  console.log(styles.header('Agent Prompt Dump'))
-  console.log(
+  out.blank()
+  out.line(styles.header('Agent Prompt Dump'))
+  out.line(
     pc.dim(
       `System: ~${fmtPlain(systemTokens)} tokens | Conversation: ${conversationTurns.length} turns, ~${fmtPlain(conversationTokens)} tokens | Total: ~${fmtPlain(totalTokens)} tokens`,
     ),
   )
-  console.log()
+  out.blank()
 
   // System prompt - exactly as sent
-  console.log(styles.subheader('=== SYSTEM ==='))
-  console.log(systemPrompt)
+  out.line(styles.subheader('=== SYSTEM ==='))
+  out.line(systemPrompt)
 
   // Conversation turns - exactly as sent
   if (conversationTurns.length > 0) {
-    console.log()
-    console.log(
+    out.blank()
+    out.line(
       styles.subheader(
         `=== CONVERSATION (${conversationTurns.length} turns) ===`,
       ),
     )
     for (const turn of conversationTurns) {
-      console.log()
+      out.blank()
       const roleColor = turn.role === 'user' ? styles.user : styles.assistant
-      console.log(roleColor(`--- ${turn.role.toUpperCase()} ---`))
-      console.log(renderTurnContent(turn))
+      out.line(roleColor(`--- ${turn.role.toUpperCase()} ---`))
+      out.line(renderTurnContent(turn))
     }
   } else {
-    console.log()
-    console.log(styles.subheader('=== CONVERSATION (empty) ==='))
+    out.blank()
+    out.line(styles.subheader('=== CONVERSATION (empty) ==='))
   }
 
-  console.log()
+  out.blank()
 }
 
 /**
@@ -498,22 +499,22 @@ export async function runCompact(dbPath: string): Promise<void> {
 
   // Check current size
   const tokensBefore = await getEffectiveViewTokens(storage.temporal)
-  console.log(`${styles.label('Effective view:')} ${fmt(tokensBefore)} tokens`)
-  console.log(`${styles.label('Threshold:')} ${fmt(threshold)} tokens`)
-  console.log(`${styles.label('Target:')} ${fmt(target)} tokens`)
-  console.log()
+  out.line(`${styles.label('Effective view:')} ${fmt(tokensBefore)} tokens`)
+  out.line(`${styles.label('Threshold:')} ${fmt(threshold)} tokens`)
+  out.line(`${styles.label('Target:')} ${fmt(target)} tokens`)
+  out.blank()
 
   if (tokensBefore <= target) {
-    console.log(pc.dim(`Already under target, but running anyway (forced)...`))
+    out.line(pc.dim(`Already under target, but running anyway (forced)...`))
   } else {
-    console.log(`Running memory curation...`)
+    out.line(`Running memory curation...`)
   }
-  console.log()
+  out.blank()
 
   const result = await runMemoryCuration(storage, {force: true})
 
   if (!result.ran) {
-    console.log(styles.warning(`Curation did not run (already in progress?)`))
+    out.line(styles.warning(`Curation did not run (already in progress?)`))
     return
   }
 
@@ -521,29 +522,29 @@ export async function runCompact(dbPath: string): Promise<void> {
   if (result.consolidation?.ran) {
     const c = result.consolidation
     const changes = c.entriesCreated + c.entriesUpdated + c.entriesArchived
-    console.log(styles.subheader(`LTM Consolidation:`))
+    out.line(styles.subheader(`LTM Consolidation:`))
     if (changes > 0) {
-      console.log(
+      out.line(
         `  ${styles.success(String(c.entriesCreated))} created, ${styles.number(String(c.entriesUpdated))} updated, ${pc.dim(String(c.entriesArchived))} archived`,
       )
     } else {
-      console.log(pc.dim(`  No changes needed`))
+      out.line(pc.dim(`  No changes needed`))
     }
-    console.log()
+    out.blank()
   }
 
   // Report distillation results
   if (result.distillation) {
     const d = result.distillation
-    console.log(styles.subheader(`Distillation:`))
-    console.log(
+    out.line(styles.subheader(`Distillation:`))
+    out.line(
       `  ${styles.label('Distillations created:')} ${fmt(d.distillationsCreated)}`,
     )
-    console.log(
+    out.line(
       `  ${styles.label('Tokens:')} ${fmt(d.tokensBefore)} ${pc.dim('→')} ${styles.success(fmtPlain(d.tokensAfter))}`,
     )
-    console.log(`  ${styles.label('Turns used:')} ${fmt(d.turnsUsed)}`)
-    console.log(
+    out.line(`  ${styles.label('Turns used:')} ${fmt(d.turnsUsed)}`)
+    out.line(
       `  ${styles.label('LLM usage:')} ${fmt(d.usage.inputTokens)} input, ${fmt(d.usage.outputTokens)} output`,
     )
   }
