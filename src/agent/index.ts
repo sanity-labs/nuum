@@ -958,6 +958,11 @@ export async function runAgent(
       }
       return null
     },
+
+    // Show "thinking" indicator when processing tool results
+    onThinking: () => {
+      activity.mainAgent.thinking('processing tool results...')
+    },
   })
 
   onEvent?.({type: 'done', content: result.finalText})

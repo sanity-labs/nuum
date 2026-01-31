@@ -15,8 +15,11 @@ import {runMemoryCuration, getEffectiveViewTokens} from '../memory'
 import {buildAgentContext} from '../context'
 import {Config} from '../config'
 import {pc, styles} from '../util/colors'
-import {out} from './output'
 import type {CoreMessage} from 'ai'
+
+// Diagnostic output - these commands are standalone tools, not agent conversation
+const log = console.log
+const blank = () => console.log()
 
 const SEPARATOR = styles.separator('═'.repeat(70))
 const SUBSEPARATOR = styles.separator('─'.repeat(70))
@@ -279,76 +282,76 @@ export async function runInspect(dbPath: string): Promise<void> {
   const stats = await getMemoryStats(storage)
   const ltmTree = await buildLTMTree(storage)
 
-  out.blank()
-  out.line(SEPARATOR)
-  out.line(styles.header('LONG-TERM MEMORY TREE'))
-  out.line(SEPARATOR)
-  out.blank()
+  blank()
+  log(SEPARATOR)
+  log(styles.header('LONG-TERM MEMORY TREE'))
+  log(SEPARATOR)
+  blank()
 
   if (ltmTree.length > 0) {
-    out.line(renderLTMTree(ltmTree))
+    log(renderLTMTree(ltmTree))
   } else {
-    out.line(pc.dim('(no entries)'))
+    log(pc.dim('(no entries)'))
   }
 
-  out.blank()
+  blank()
   const archivedCount = stats.ltmTotalEntries - stats.ltmActiveEntries
-  out.line(
+  log(
     `${styles.label('Total:')} ${fmt(stats.ltmActiveEntries)} active${archivedCount > 0 ? `, ${fmt(archivedCount)} archived` : ''} (${fmt(stats.ltmTotalTokens)} tokens)`,
   )
 
-  out.blank()
-  out.line(SEPARATOR)
-  out.line(styles.header('TEMPORAL MEMORY'))
-  out.line(SEPARATOR)
-  out.blank()
+  blank()
+  log(SEPARATOR)
+  log(styles.header('TEMPORAL MEMORY'))
+  log(SEPARATOR)
+  blank()
 
-  out.line(
+  log(
     `${styles.label('Messages:')} ${fmt(stats.totalMessages)} (${fmt(stats.totalMessageTokens)} tokens)`,
   )
 
   if (stats.summariesByOrder.length > 0) {
-    out.line(`${styles.label('Summaries:')}`)
+    log(`${styles.label('Summaries:')}`)
     for (const orderStats of stats.summariesByOrder) {
-      out.line(
+      log(
         `  ${pc.dim(`Order-${orderStats.order}:`)} ${fmt(orderStats.count)} (${fmt(orderStats.totalTokens)} tokens)`,
       )
     }
   } else {
-    out.line(`${styles.label('Summaries:')} ${pc.dim('none')}`)
+    log(`${styles.label('Summaries:')} ${pc.dim('none')}`)
   }
 
-  out.blank()
+  blank()
   const needsCompaction = stats.viewTotalTokens > stats.compactionThreshold
   const compactionStatus = needsCompaction
     ? styles.warning(' (compaction needed)')
     : ''
-  out.line(
+  log(
     `${styles.label('Effective view')} ${pc.dim('(what goes to agent)')}:`,
   )
-  out.line(
+  log(
     `  ${styles.label('Summaries:')} ${fmt(stats.viewSummaryCount)} (${fmt(stats.viewSummaryTokens)} tokens)`,
   )
-  out.line(
+  log(
     `  ${styles.label('Messages:')} ${fmt(stats.viewMessageCount)} (${fmt(stats.viewMessageTokens)} tokens)`,
   )
-  out.line(
+  log(
     `  ${styles.label('Total:')} ${fmt(stats.viewTotalTokens)} / ${fmt(stats.compactionThreshold)} threshold${compactionStatus}`,
   )
-  out.line(
+  log(
     `  ${styles.label('Target:')} ${fmt(stats.compactionTarget)} tokens`,
   )
 
-  out.blank()
-  out.line(SEPARATOR)
-  out.line(styles.header('PRESENT STATE'))
-  out.line(SEPARATOR)
-  out.blank()
+  blank()
+  log(SEPARATOR)
+  log(styles.header('PRESENT STATE'))
+  log(SEPARATOR)
+  blank()
 
-  out.line(
+  log(
     `${styles.label('Mission:')} ${stats.mission ?? pc.dim('(none)')}`,
   )
-  out.line(`${styles.label('Status:')} ${stats.status ?? pc.dim('(none)')}`)
+  log(`${styles.label('Status:')} ${stats.status ?? pc.dim('(none)')}`)
 
   const totalTasks =
     stats.tasksPending +
@@ -356,24 +359,24 @@ export async function runInspect(dbPath: string): Promise<void> {
     stats.tasksCompleted +
     stats.tasksBlocked
   if (totalTasks > 0) {
-    out.line(`${styles.label('Tasks:')} ${fmt(totalTasks)} total`)
+    log(`${styles.label('Tasks:')} ${fmt(totalTasks)} total`)
     if (stats.tasksPending > 0)
-      out.line(`  ${pc.dim('Pending:')} ${fmt(stats.tasksPending)}`)
+      log(`  ${pc.dim('Pending:')} ${fmt(stats.tasksPending)}`)
     if (stats.tasksInProgress > 0)
-      out.line(
+      log(
         `  ${styles.warning('In progress:')} ${fmt(stats.tasksInProgress)}`,
       )
     if (stats.tasksCompleted > 0)
-      out.line(
+      log(
         `  ${styles.success('Completed:')} ${fmt(stats.tasksCompleted)}`,
       )
     if (stats.tasksBlocked > 0)
-      out.line(`  ${styles.error('Blocked:')} ${fmt(stats.tasksBlocked)}`)
+      log(`  ${styles.error('Blocked:')} ${fmt(stats.tasksBlocked)}`)
   } else {
-    out.line(`${styles.label('Tasks:')} ${pc.dim('none')}`)
+    log(`${styles.label('Tasks:')} ${pc.dim('none')}`)
   }
 
-  out.blank()
+  blank()
 }
 
 /**
@@ -450,39 +453,39 @@ export async function runDump(dbPath: string): Promise<void> {
   const totalTokens = systemTokens + conversationTokens
 
   // Header with stats
-  out.blank()
-  out.line(styles.header('Agent Prompt Dump'))
-  out.line(
+  blank()
+  log(styles.header('Agent Prompt Dump'))
+  log(
     pc.dim(
       `System: ~${fmtPlain(systemTokens)} tokens | Conversation: ${conversationTurns.length} turns, ~${fmtPlain(conversationTokens)} tokens | Total: ~${fmtPlain(totalTokens)} tokens`,
     ),
   )
-  out.blank()
+  blank()
 
   // System prompt - exactly as sent
-  out.line(styles.subheader('=== SYSTEM ==='))
-  out.line(systemPrompt)
+  log(styles.subheader('=== SYSTEM ==='))
+  log(systemPrompt)
 
   // Conversation turns - exactly as sent
   if (conversationTurns.length > 0) {
-    out.blank()
-    out.line(
+    blank()
+    log(
       styles.subheader(
         `=== CONVERSATION (${conversationTurns.length} turns) ===`,
       ),
     )
     for (const turn of conversationTurns) {
-      out.blank()
+      blank()
       const roleColor = turn.role === 'user' ? styles.user : styles.assistant
-      out.line(roleColor(`--- ${turn.role.toUpperCase()} ---`))
-      out.line(renderTurnContent(turn))
+      log(roleColor(`--- ${turn.role.toUpperCase()} ---`))
+      log(renderTurnContent(turn))
     }
   } else {
-    out.blank()
-    out.line(styles.subheader('=== CONVERSATION (empty) ==='))
+    blank()
+    log(styles.subheader('=== CONVERSATION (empty) ==='))
   }
 
-  out.blank()
+  blank()
 }
 
 /**
@@ -499,22 +502,22 @@ export async function runCompact(dbPath: string): Promise<void> {
 
   // Check current size
   const tokensBefore = await getEffectiveViewTokens(storage.temporal)
-  out.line(`${styles.label('Effective view:')} ${fmt(tokensBefore)} tokens`)
-  out.line(`${styles.label('Threshold:')} ${fmt(threshold)} tokens`)
-  out.line(`${styles.label('Target:')} ${fmt(target)} tokens`)
-  out.blank()
+  log(`${styles.label('Effective view:')} ${fmt(tokensBefore)} tokens`)
+  log(`${styles.label('Threshold:')} ${fmt(threshold)} tokens`)
+  log(`${styles.label('Target:')} ${fmt(target)} tokens`)
+  blank()
 
   if (tokensBefore <= target) {
-    out.line(pc.dim(`Already under target, but running anyway (forced)...`))
+    log(pc.dim(`Already under target, but running anyway (forced)...`))
   } else {
-    out.line(`Running memory curation...`)
+    log(`Running memory curation...`)
   }
-  out.blank()
+  blank()
 
   const result = await runMemoryCuration(storage, {force: true})
 
   if (!result.ran) {
-    out.line(styles.warning(`Curation did not run (already in progress?)`))
+    log(styles.warning(`Curation did not run (already in progress?)`))
     return
   }
 
@@ -522,29 +525,29 @@ export async function runCompact(dbPath: string): Promise<void> {
   if (result.consolidation?.ran) {
     const c = result.consolidation
     const changes = c.entriesCreated + c.entriesUpdated + c.entriesArchived
-    out.line(styles.subheader(`LTM Consolidation:`))
+    log(styles.subheader(`LTM Consolidation:`))
     if (changes > 0) {
-      out.line(
+      log(
         `  ${styles.success(String(c.entriesCreated))} created, ${styles.number(String(c.entriesUpdated))} updated, ${pc.dim(String(c.entriesArchived))} archived`,
       )
     } else {
-      out.line(pc.dim(`  No changes needed`))
+      log(pc.dim(`  No changes needed`))
     }
-    out.blank()
+    blank()
   }
 
   // Report distillation results
   if (result.distillation) {
     const d = result.distillation
-    out.line(styles.subheader(`Distillation:`))
-    out.line(
+    log(styles.subheader(`Distillation:`))
+    log(
       `  ${styles.label('Distillations created:')} ${fmt(d.distillationsCreated)}`,
     )
-    out.line(
+    log(
       `  ${styles.label('Tokens:')} ${fmt(d.tokensBefore)} ${pc.dim('→')} ${styles.success(fmtPlain(d.tokensAfter))}`,
     )
-    out.line(`  ${styles.label('Turns used:')} ${fmt(d.turnsUsed)}`)
-    out.line(
+    log(`  ${styles.label('Turns used:')} ${fmt(d.turnsUsed)}`)
+    log(
       `  ${styles.label('LLM usage:')} ${fmt(d.usage.inputTokens)} input, ${fmt(d.usage.outputTokens)} output`,
     )
   }

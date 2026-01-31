@@ -130,6 +130,12 @@ export interface AgentLoopOptions {
    * is running can be injected here to give the agent a chance to adjust.
    */
   onBeforeTurn?: () => string | null | Promise<string | null>
+  /**
+   * Called when the model is about to "think" (generate a response).
+   * Useful for showing a "thinking" indicator in the UI.
+   * Only called after the first turn (when there are tool results to process).
+   */
+  onThinking?: () => void
 }
 
 /**
@@ -185,6 +191,7 @@ export async function runAgentLoop(
     onText,
     onToolCall,
     onBeforeTurn,
+    onThinking,
   } = options
 
   // Check if already cancelled
@@ -220,6 +227,11 @@ export async function runAgentLoop(
     }
 
     turnsUsed++
+
+    // Signal that the model is about to "think" (after first turn, when processing tool results)
+    if (turn > 0) {
+      onThinking?.()
+    }
 
     // Add cache markers for Anthropic prompt caching
     // Mark the second-to-last message as a cache breakpoint

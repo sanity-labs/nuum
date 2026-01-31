@@ -21,10 +21,18 @@ import {Server} from '../jsonrpc'
 import {runInspect, runDump} from './inspect'
 import {pc, styles} from '../util/colors'
 import {renderMarkdown} from '../util/markdown'
-import {out, err} from './output'
+import {
+  render,
+  renderEnd,
+  resetRenderer,
+  setReplContext,
+  clearReplContext,
+  setReplRunning,
+  renderRaw,
+} from './renderer'
 
 const PROMPT = pc.cyan('nuum') + pc.dim('> ')
-const HISTORY_FILE = path.join(os.homedir(), '.miriad-code-history')
+const HISTORY_FILE = path.join(os.homedir(), '.nuum-history')
 const MAX_HISTORY = 1000
 
 export interface ReplOptions {
@@ -75,36 +83,40 @@ export class ReplSession {
       this.rl.history?.unshift(line)
     }
 
+    // Register REPL context for prompt-aware background output
+    setReplContext(this.rl, PROMPT)
+
     // Handle Ctrl+C (SIGINT)
     this.rl.on('SIGINT', () => {
       if (this.isRunning) {
         // Cancel current request via server
         this.server.interrupt()
-        out.line()
-        out.line(styles.warning('^C - Request cancelled'))
+        renderRaw('\n')
+        renderRaw(styles.warning('^C - Request cancelled') + '\n')
       } else {
         // Show hint
-        out.line()
-        out.line(pc.dim('(Use /quit or Ctrl+D to exit)'))
+        renderRaw('\n')
+        renderRaw(pc.dim('(Use /quit or Ctrl+D to exit)') + '\n')
         this.rl?.prompt()
       }
     })
 
     // Handle Ctrl+D (close)
     this.rl.on('close', () => {
+      clearReplContext()
       this.saveHistory()
-      out.line()
-      out.line(pc.dim('Goodbye!'))
+      renderRaw('\n')
+      renderRaw(pc.dim('Goodbye!') + '\n')
       this.server.shutdown('user exit')
     })
 
     // Handle input
     this.rl.on('line', (line) => {
       this.handleLine(line).catch((error) => {
-        err.line(
+        renderRaw(
           styles.error(
             `Error: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+          ) + '\n',
         )
         this.rl?.prompt()
       })
@@ -119,10 +131,12 @@ export class ReplSession {
    * Print welcome message.
    */
   private printWelcome(): void {
-    out.blank()
-    out.line(pc.bold(pc.cyan('nuum')) + ' ' + pc.dim('interactive mode'))
-    out.line(pc.dim('Type /help for commands, /quit to exit'))
-    out.blank()
+    renderRaw('\n')
+    renderRaw(
+      pc.bold(pc.cyan('nuum')) + ' ' + pc.dim('interactive mode') + '\n',
+    )
+    renderRaw(pc.dim('Type /help for commands, /quit to exit') + '\n')
+    renderRaw('\n')
   }
 
   /**
@@ -159,8 +173,9 @@ export class ReplSession {
       case 'quit':
       case 'exit':
       case 'q':
+        clearReplContext()
         this.saveHistory()
-        out.line(pc.dim('Goodbye!'))
+        renderRaw(pc.dim('Goodbye!') + '\n')
         this.server.shutdown('user exit')
         break
 
@@ -168,10 +183,10 @@ export class ReplSession {
         try {
           await runInspect(this.options.dbPath)
         } catch (error) {
-          err.line(
+          renderRaw(
             styles.error(
               `Error: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+            ) + '\n',
           )
         }
         this.rl?.prompt()
@@ -181,10 +196,10 @@ export class ReplSession {
         try {
           await runDump(this.options.dbPath)
         } catch (error) {
-          err.line(
+          renderRaw(
             styles.error(
               `Error: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+            ) + '\n',
           )
         }
         this.rl?.prompt()
@@ -198,8 +213,8 @@ export class ReplSession {
         break
 
       default:
-        out.line(styles.warning(`Unknown command: /${command}`))
-        out.line(pc.dim('Type /help for available commands.'))
+        renderRaw(styles.warning(`Unknown command: /${command}`) + '\n')
+        renderRaw(pc.dim('Type /help for available commands.') + '\n')
         this.rl?.prompt()
     }
   }
@@ -208,33 +223,33 @@ export class ReplSession {
    * Print help message.
    */
   private printHelp(): void {
-    out.blank()
-    out.line(styles.header('Commands'))
-    out.line(
-      `  ${pc.cyan('/help')}, ${pc.cyan('/h')}, ${pc.cyan('/?')}    ${pc.dim('Show this help')}`,
+    renderRaw('\n')
+    renderRaw(styles.header('Commands') + '\n')
+    renderRaw(
+      `  ${pc.cyan('/help')}, ${pc.cyan('/h')}, ${pc.cyan('/?')}    ${pc.dim('Show this help')}\n`,
     )
-    out.line(
-      `  ${pc.cyan('/quit')}, ${pc.cyan('/exit')}, ${pc.cyan('/q')} ${pc.dim('Exit the REPL')}`,
+    renderRaw(
+      `  ${pc.cyan('/quit')}, ${pc.cyan('/exit')}, ${pc.cyan('/q')} ${pc.dim('Exit the REPL')}\n`,
     )
-    out.line(
-      `  ${pc.cyan('/inspect')}         ${pc.dim('Show memory statistics')}`,
+    renderRaw(
+      `  ${pc.cyan('/inspect')}         ${pc.dim('Show memory statistics')}\n`,
     )
-    out.line(
-      `  ${pc.cyan('/dump')}            ${pc.dim('Show full system prompt')}`,
+    renderRaw(
+      `  ${pc.cyan('/dump')}            ${pc.dim('Show full system prompt')}\n`,
     )
-    out.blank()
-    out.line(styles.header('Shortcuts'))
-    out.line(
-      `  ${pc.yellow('Ctrl+C')}           ${pc.dim('Cancel current request')}`,
+    renderRaw('\n')
+    renderRaw(styles.header('Shortcuts') + '\n')
+    renderRaw(
+      `  ${pc.yellow('Ctrl+C')}           ${pc.dim('Cancel current request')}\n`,
     )
-    out.line(`  ${pc.yellow('Ctrl+D')}           ${pc.dim('Exit')}`)
-    out.line(
-      `  ${pc.yellow('Up/Down arrows')}   ${pc.dim('Navigate history')}`,
+    renderRaw(`  ${pc.yellow('Ctrl+D')}           ${pc.dim('Exit')}\n`)
+    renderRaw(
+      `  ${pc.yellow('Up/Down arrows')}   ${pc.dim('Navigate history')}\n`,
     )
-    out.line(
-      `  ${pc.yellow('Ctrl+R')}           ${pc.dim('Reverse history search')}`,
+    renderRaw(
+      `  ${pc.yellow('Ctrl+R')}           ${pc.dim('Reverse history search')}\n`,
     )
-    out.blank()
+    renderRaw('\n')
   }
 
   /**
@@ -242,26 +257,29 @@ export class ReplSession {
    */
   private async runPrompt(prompt: string): Promise<void> {
     this.isRunning = true
-    this.lastOutputType = 'none'
+    setReplRunning(true)
+    resetRenderer()
+    resetRenderer()
 
     try {
       // Add blank line before agent response
-      out.blank()
+      renderRaw('\n')
       // Send message to server (it handles everything)
       await this.server.sendUserMessage(prompt)
     } finally {
       this.isRunning = false
-      out.blank()
+      setReplRunning(false)
+      renderEnd()
       this.rl?.prompt()
     }
   }
 
-  // Track what was last output to manage spacing
-  private lastOutputType: 'none' | 'text' | 'tool' = 'none'
-
   /**
    * Handle output messages from the server.
    * Translates protocol messages to human-friendly console output.
+   *
+   * Tool calls and results are handled by the activity log (via renderer).
+   * We only handle text output and some system messages here.
    */
   private handleServerOutput(message: unknown): void {
     const msg = message as Record<string, unknown>
@@ -280,26 +298,10 @@ export class ReplSession {
         if (assistantMsg?.content) {
           for (const block of assistantMsg.content) {
             if (block.type === 'text' && block.text) {
-              // Add blank line before text if we were showing tool output
-              if (this.lastOutputType === 'tool') {
-                out.blank()
-              }
-              // Render markdown in assistant text output
-              out.write(renderMarkdown(block.text))
-              this.lastOutputType = 'text'
-            } else if (block.type === 'tool_use' && block.name) {
-              // Add blank line before tool call if we were outputting text
-              if (this.lastOutputType === 'text') {
-                out.blank()
-              }
-              // Show tool call as progress indicator
-              const displayName = this.formatToolName(block.name)
-              const args = this.formatToolArgs(block.input)
-              out.line(
-                `${pc.dim('[')}${styles.tool(displayName)}${pc.dim(args + '...]')}`,
-              )
-              this.lastOutputType = 'tool'
+              // Render text through the renderer (with markdown)
+              render({type: 'text', text: renderMarkdown(block.text)})
             }
+            // Tool calls are handled by activity log, not here
           }
         }
         break
@@ -309,14 +311,17 @@ export class ReplSession {
         const subtype = msg.subtype as string
         switch (subtype) {
           case 'init':
-            // Ignore init message in REPL
-            break
           case 'tool_result':
-            // Don't show raw tool results - they're verbose
+          case 'interrupted':
+            // Handled elsewhere or ignored
             break
           case 'error':
-            out.blank()
-            out.line(styles.error('[Error: ' + (msg as {message?: string}).message + ']'))
+            render({
+              type: 'info',
+              worker: 'server',
+              level: 'error',
+              message: (msg as {message?: string}).message || 'Unknown error',
+            })
             break
           case 'consolidation': {
             const changes =
@@ -324,14 +329,15 @@ export class ReplSession {
               ((msg as {entries_updated?: number}).entries_updated ?? 0) +
               ((msg as {entries_archived?: number}).entries_archived ?? 0)
             if (changes > 0) {
-              out.blank()
-              out.line(pc.dim('[LTM updated: ' + changes + ' change(s)]'))
+              render({
+                type: 'lifecycle',
+                worker: 'ltm-curator',
+                action: 'complete',
+                message: `LTM updated: ${changes} change(s)`,
+              })
             }
             break
           }
-          case 'interrupted':
-            // Already handled by SIGINT handler
-            break
         }
         break
       }
@@ -341,51 +347,6 @@ export class ReplSession {
         break
       }
     }
-  }
-
-  /**
-   * Format tool name for display.
-   */
-  private formatToolName(name: string): string {
-    const displayNames: Record<string, string> = {
-      bash: 'Running command',
-      read: 'Reading',
-      write: 'Writing',
-      edit: 'Editing',
-      glob: 'Searching files',
-      grep: 'Searching content',
-      present_set_mission: 'Setting mission',
-      present_set_status: 'Setting status',
-      present_update_tasks: 'Updating tasks',
-      set_alarm: 'Setting alarm',
-      list_tasks: 'Listing tasks',
-      background_research: 'Starting research',
-      background_reflect: 'Starting reflection',
-      cancel_task: 'Cancelling task',
-    }
-    return displayNames[name] || name
-  }
-
-  /**
-   * Extract relevant args for display.
-   */
-  private formatToolArgs(input: unknown): string {
-    if (!input || typeof input !== 'object') return ''
-    const args = input as Record<string, unknown>
-
-    // Show relevant arg based on tool
-    if (args.path) return ` ${args.path}`
-    if (args.filePath) return ` ${args.filePath}`
-    if (args.pattern) return ` ${args.pattern}`
-    if (args.command) {
-      const cmd = String(args.command)
-      return ` ${cmd.slice(0, 50)}${cmd.length > 50 ? '...' : ''}`
-    }
-    if (args.delay) return ` ${args.delay}`
-    if (args.topic) return ` "${String(args.topic).slice(0, 40)}..."`
-    if (args.question) return ` "${String(args.question).slice(0, 40)}..."`
-
-    return ''
   }
 
   /**

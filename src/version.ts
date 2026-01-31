@@ -1,5 +1,5 @@
 /**
- * Version information for miriad-code
+ * Version information for nuum
  *
  * BUILD_VERSION and BUILD_GIT_HASH are injected at build time via Bun's --define flag.
  * They fall back to runtime detection for development.
@@ -43,4 +43,4 @@ export const VERSION =
   typeof BUILD_VERSION !== 'undefined' ? BUILD_VERSION : getPackageVersion()
 export const GIT_HASH =
   typeof BUILD_GIT_HASH !== 'undefined' ? BUILD_GIT_HASH : getGitHash()
-export const VERSION_STRING = `miriad-code v${VERSION} (${GIT_HASH})`
+export const VERSION_STRING = `nuum v${VERSION} (${GIT_HASH})`

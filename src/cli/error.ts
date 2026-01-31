@@ -5,7 +5,7 @@
  */
 
 import {pc} from '../util/colors'
-import {err} from './output'
+import {renderRawStderr} from './renderer'
 
 interface ErrorInfo {
   title: string
@@ -148,33 +148,35 @@ export function printError(error: unknown, options?: {verbose?: boolean}): void 
   const topBorder = pc.red('╭' + '─'.repeat(boxWidth - 2) + '╮')
   const bottomBorder = pc.red('╰' + '─'.repeat(boxWidth - 2) + '╯')
 
-  err.blank()
-  err.line(topBorder)
-  err.line(pc.red('│') + ' ' + pc.bold(pc.red(info.title.padEnd(boxWidth - 4))) + ' ' + pc.red('│'))
-  err.line(pc.red('│') + ' '.repeat(boxWidth - 2) + pc.red('│'))
+  const write = (text: string) => renderRawStderr(text + '\n')
+
+  write('')
+  write(topBorder)
+  write(pc.red('│') + ' ' + pc.bold(pc.red(info.title.padEnd(boxWidth - 4))) + ' ' + pc.red('│'))
+  write(pc.red('│') + ' '.repeat(boxWidth - 2) + pc.red('│'))
 
   // Word-wrap the message
   const messageLines = wrapText(info.message, boxWidth - 4)
   for (const line of messageLines) {
-    err.line(pc.red('│') + ' ' + line.padEnd(boxWidth - 4) + ' ' + pc.red('│'))
+    write(pc.red('│') + ' ' + line.padEnd(boxWidth - 4) + ' ' + pc.red('│'))
   }
 
   if (info.hint) {
-    err.line(pc.red('│') + ' '.repeat(boxWidth - 2) + pc.red('│'))
+    write(pc.red('│') + ' '.repeat(boxWidth - 2) + pc.red('│'))
     const hintLines = wrapText(info.hint, boxWidth - 4)
     for (const line of hintLines) {
-      err.line(pc.red('│') + ' ' + pc.dim(line.padEnd(boxWidth - 4)) + ' ' + pc.red('│'))
+      write(pc.red('│') + ' ' + pc.dim(line.padEnd(boxWidth - 4)) + ' ' + pc.red('│'))
     }
   }
 
-  err.line(bottomBorder)
-  err.blank()
+  write(bottomBorder)
+  write('')
 
   // Show stack trace in verbose mode
   if (options?.verbose && info.details) {
-    err.line(pc.dim('Stack trace:'))
-    err.line(pc.dim(info.details))
-    err.blank()
+    write(pc.dim('Stack trace:'))
+    write(pc.dim(info.details))
+    write('')
   }
 }
 
@@ -206,10 +208,11 @@ function wrapText(text: string, maxWidth: number): string[] {
  * Print a simple error message (for validation errors, missing args, etc.)
  */
 export function printSimpleError(message: string, hint?: string): void {
-  err.blank()
-  err.line(`${pc.red('✗')} ${pc.bold('Error:')} ${message}`)
+  const write = (text: string) => renderRawStderr(text + '\n')
+  write('')
+  write(`${pc.red('✗')} ${pc.bold('Error:')} ${message}`)
   if (hint) {
-    err.line(`  ${pc.dim(hint)}`)
+    write(`  ${pc.dim(hint)}`)
   }
-  err.blank()
+  write('')
 }

@@ -21,7 +21,7 @@ import {
 import {buildTemporalView} from '../temporal'
 import {getEffectiveViewTokens} from '../memory'
 import {Config} from '../config'
-import {out} from './output'
+import {render, renderEnd, resetRenderer, renderRaw} from './renderer'
 
 export interface BatchOptions {
   prompt: string
@@ -189,6 +189,7 @@ export async function runBatch(options: BatchOptions): Promise<void> {
 
     // Run the agent
     const events: AgentEvent[] = []
+    resetRenderer()
 
     const result = await runAgent(options.prompt, {
       storage,
@@ -233,10 +234,13 @@ export async function runBatch(options: BatchOptions): Promise<void> {
           ...(e.toolCallId && {toolCallId: e.toolCallId}),
         })),
       }
-      out.line(JSON.stringify(output, null, 2))
+      renderRaw(JSON.stringify(output, null, 2) + '\n')
     } else {
-      out.line(result.response)
+      // Render text response through the renderer
+      render({type: 'text', text: result.response})
     }
+    // Final spacing before shell prompt returns
+    renderEnd()
   } catch (error) {
     // Let the error bubble up to be handled by the CLI entry point
     throw error

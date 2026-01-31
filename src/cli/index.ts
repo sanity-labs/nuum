@@ -15,7 +15,7 @@ import {runRepl} from './repl'
 import {VERSION_STRING} from '../version'
 import {Log} from '../util/log'
 import {printError, printSimpleError} from './error'
-import {out} from './output'
+import {renderRaw} from './renderer'
 
 interface CliOptions {
   prompt: string | undefined
@@ -140,7 +140,7 @@ async function main(): Promise<void> {
   }
 
   if (options.version) {
-    out.line(VERSION_STRING)
+    renderRaw(VERSION_STRING + '\n')
     process.exit(0)
   }
 
