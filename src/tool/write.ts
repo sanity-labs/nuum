@@ -10,12 +10,12 @@
  * - Kept diff preview for permission checks
  */
 
-import { z } from "zod"
-import * as fs from "fs"
-import * as path from "path"
-import { Tool } from "./tool"
-import { createTwoFilesPatch } from "diff"
-import { trimDiff } from "./edit"
+import {z} from 'zod'
+import * as fs from 'fs'
+import * as path from 'path'
+import {Tool} from './tool'
+import {createTwoFilesPatch} from 'diff'
+import {trimDiff} from './edit'
 
 export interface WriteMetadata {
   created: boolean
@@ -29,7 +29,7 @@ export const WriteTool = Tool.define<
     content: z.ZodString
   }>,
   WriteMetadata
->("write", {
+>('write', {
   description: `Write content to a file, creating it if it doesn't exist.
 
 This will overwrite existing files completely. Use the 'edit' tool for surgical modifications.
@@ -39,8 +39,12 @@ This will overwrite existing files completely. Use the 'edit' tool for surgical 
 - Returns success message with file path`,
 
   parameters: z.object({
-    filePath: z.string().describe("The absolute path to the file to write (must be absolute, not relative)"),
-    content: z.string().describe("The content to write to the file"),
+    filePath: z
+      .string()
+      .describe(
+        'The absolute path to the file to write (must be absolute, not relative)',
+      ),
+    content: z.string().describe('The content to write to the file'),
   }),
 
   async execute(params, ctx) {
@@ -51,16 +55,18 @@ This will overwrite existing files completely. Use the 'edit' tool for surgical 
 
     const title = path.basename(filepath)
     const existed = fs.existsSync(filepath)
-    const contentOld = existed ? fs.readFileSync(filepath, "utf-8") : ""
+    const contentOld = existed ? fs.readFileSync(filepath, 'utf-8') : ''
 
     // Generate diff for permission check
-    const diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, params.content))
+    const diff = trimDiff(
+      createTwoFilesPatch(filepath, filepath, contentOld, params.content),
+    )
 
     // Request permission with diff preview
     await ctx.ask({
-      permission: "edit",
+      permission: 'edit',
       patterns: [filepath],
-      always: ["*"],
+      always: ['*'],
       metadata: {
         filepath,
         diff,
@@ -70,11 +76,11 @@ This will overwrite existing files completely. Use the 'edit' tool for surgical 
     // Create parent directories if needed
     const dir = path.dirname(filepath)
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+      fs.mkdirSync(dir, {recursive: true})
     }
 
     // Write the file
-    fs.writeFileSync(filepath, params.content, "utf-8")
+    fs.writeFileSync(filepath, params.content, 'utf-8')
 
     // Note: LSP diagnostics deferred to Phase 2
     // In OpenCode, this would report LSP errors after write

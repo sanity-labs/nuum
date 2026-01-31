@@ -4,11 +4,14 @@
  * License: MIT
  */
 
-import { z } from "zod"
-import type { ZodType } from "zod"
+import {z} from 'zod'
+import type {ZodType} from 'zod'
 
 export namespace BusEvent {
-  export type Definition<Type extends string = string, Properties extends ZodType = ZodType> = {
+  export type Definition<
+    Type extends string = string,
+    Properties extends ZodType = ZodType,
+  > = {
     type: Type
     properties: Properties
   }
@@ -40,8 +43,11 @@ export namespace BusEvent {
     )
     // Cast required because discriminatedUnion needs non-empty tuple type
     return z.discriminatedUnion(
-      "type",
-      schemas as unknown as [z.ZodDiscriminatedUnionOption<"type">, ...z.ZodDiscriminatedUnionOption<"type">[]],
+      'type',
+      schemas as unknown as [
+        z.ZodDiscriminatedUnionOption<'type'>,
+        ...z.ZodDiscriminatedUnionOption<'type'>[],
+      ],
     )
   }
 }

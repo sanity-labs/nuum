@@ -9,4 +9,4 @@ export {
   runConsolidationWorker,
   isConversationNoteworthy,
   type ConsolidationResult,
-} from "./consolidation"
+} from './consolidation'

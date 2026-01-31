@@ -5,18 +5,18 @@
  * Single-row table for mission, status, and tasks.
  */
 
-import { eq } from "drizzle-orm"
-import type { DrizzleDB } from "./db"
+import {eq} from 'drizzle-orm'
+import type {DrizzleDB} from './db'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzleDB = any
 
-import { presentState } from "./schema"
+import {presentState} from './schema'
 
 export interface Task {
   id: string
   content: string
-  status: "pending" | "in_progress" | "completed" | "blocked"
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked'
   blockedReason?: string
 }
 
@@ -34,7 +34,9 @@ export interface PresentStorage {
   setTasks(tasks: Task[]): Promise<void>
 }
 
-export function createPresentStorage(db: DrizzleDB | AnyDrizzleDB): PresentStorage {
+export function createPresentStorage(
+  db: DrizzleDB | AnyDrizzleDB,
+): PresentStorage {
   // Ensure the single row exists
   async function ensureRow(): Promise<void> {
     const existing = await db
@@ -48,7 +50,7 @@ export function createPresentStorage(db: DrizzleDB | AnyDrizzleDB): PresentStora
         id: 1,
         mission: null,
         status: null,
-        tasks: "[]",
+        tasks: '[]',
       })
     }
   }
@@ -66,7 +68,7 @@ export function createPresentStorage(db: DrizzleDB | AnyDrizzleDB): PresentStora
       const row = result[0]
       if (!row) {
         // Should never happen after ensureRow
-        return { mission: null, status: null, tasks: [] }
+        return {mission: null, status: null, tasks: []}
       }
 
       return {
@@ -92,19 +94,13 @@ export function createPresentStorage(db: DrizzleDB | AnyDrizzleDB): PresentStora
     async setMission(mission: string | null): Promise<void> {
       await ensureRow()
 
-      await db
-        .update(presentState)
-        .set({ mission })
-        .where(eq(presentState.id, 1))
+      await db.update(presentState).set({mission}).where(eq(presentState.id, 1))
     },
 
     async setStatus(status: string | null): Promise<void> {
       await ensureRow()
 
-      await db
-        .update(presentState)
-        .set({ status })
-        .where(eq(presentState.id, 1))
+      await db.update(presentState).set({status}).where(eq(presentState.id, 1))
     },
 
     async setTasks(tasks: Task[]): Promise<void> {
@@ -112,7 +108,7 @@ export function createPresentStorage(db: DrizzleDB | AnyDrizzleDB): PresentStora
 
       await db
         .update(presentState)
-        .set({ tasks: JSON.stringify(tasks) })
+        .set({tasks: JSON.stringify(tasks)})
         .where(eq(presentState.id, 1))
     },
   }

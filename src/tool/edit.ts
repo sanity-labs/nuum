@@ -16,11 +16,11 @@
  * - Kept the full 9-replacer matching system for robust edit handling
  */
 
-import { z } from "zod"
-import * as fs from "fs"
-import * as path from "path"
-import { Tool } from "./tool"
-import { createTwoFilesPatch, diffLines } from "diff"
+import {z} from 'zod'
+import * as fs from 'fs'
+import * as path from 'path'
+import {Tool} from './tool'
+import {createTwoFilesPatch, diffLines} from 'diff'
 
 export interface EditMetadata {
   diff: string
@@ -36,7 +36,7 @@ export const EditTool = Tool.define<
     replaceAll: z.ZodOptional<z.ZodBoolean>
   }>,
   EditMetadata
->("edit", {
+>('edit', {
   description: `Make surgical text replacements in a file.
 
 Use this tool for targeted edits when you know exactly what text to change.
@@ -49,19 +49,26 @@ Rules:
 - Use Write tool for creating new files or complete rewrites`,
 
   parameters: z.object({
-    filePath: z.string().describe("The absolute path to the file to modify"),
-    oldString: z.string().describe("The text to replace"),
-    newString: z.string().describe("The text to replace it with (must be different from oldString)"),
-    replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
+    filePath: z.string().describe('The absolute path to the file to modify'),
+    oldString: z.string().describe('The text to replace'),
+    newString: z
+      .string()
+      .describe(
+        'The text to replace it with (must be different from oldString)',
+      ),
+    replaceAll: z
+      .boolean()
+      .optional()
+      .describe('Replace all occurrences of oldString (default false)'),
   }),
 
   async execute(params, ctx) {
     if (!params.filePath) {
-      throw new Error("filePath is required")
+      throw new Error('filePath is required')
     }
 
     if (params.oldString === params.newString) {
-      throw new Error("oldString and newString must be different")
+      throw new Error('oldString and newString must be different')
     }
 
     let filePath = params.filePath
@@ -72,29 +79,31 @@ Rules:
     const title = path.basename(filePath)
 
     // Handle empty oldString (create new file)
-    if (params.oldString === "") {
+    if (params.oldString === '') {
       await ctx.ask({
-        permission: "edit",
+        permission: 'edit',
         patterns: [filePath],
-        always: ["*"],
-        metadata: { filepath: filePath },
+        always: ['*'],
+        metadata: {filepath: filePath},
       })
 
       // Ensure parent directory exists
       const dir = path.dirname(filePath)
       if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true })
+        fs.mkdirSync(dir, {recursive: true})
       }
 
-      fs.writeFileSync(filePath, params.newString, "utf-8")
-      const diff = trimDiff(createTwoFilesPatch(filePath, filePath, "", params.newString))
+      fs.writeFileSync(filePath, params.newString, 'utf-8')
+      const diff = trimDiff(
+        createTwoFilesPatch(filePath, filePath, '', params.newString),
+      )
 
       return {
         title,
-        output: "Edit applied successfully (created new file).",
+        output: 'Edit applied successfully (created new file).',
         metadata: {
           diff,
-          additions: params.newString.split("\n").length,
+          additions: params.newString.split('\n').length,
           deletions: 0,
         },
       }
@@ -110,21 +119,31 @@ Rules:
       throw new Error(`Path is a directory, not a file: ${filePath}`)
     }
 
-    const contentOld = fs.readFileSync(filePath, "utf-8")
-    const contentNew = replace(contentOld, params.oldString, params.newString, params.replaceAll)
+    const contentOld = fs.readFileSync(filePath, 'utf-8')
+    const contentNew = replace(
+      contentOld,
+      params.oldString,
+      params.newString,
+      params.replaceAll,
+    )
 
     const diff = trimDiff(
-      createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew))
+      createTwoFilesPatch(
+        filePath,
+        filePath,
+        normalizeLineEndings(contentOld),
+        normalizeLineEndings(contentNew),
+      ),
     )
 
     await ctx.ask({
-      permission: "edit",
+      permission: 'edit',
       patterns: [filePath],
-      always: ["*"],
-      metadata: { filepath: filePath, diff },
+      always: ['*'],
+      metadata: {filepath: filePath, diff},
     })
 
-    fs.writeFileSync(filePath, contentNew, "utf-8")
+    fs.writeFileSync(filePath, contentNew, 'utf-8')
 
     // Calculate additions/deletions
     let additions = 0
@@ -139,7 +158,7 @@ Rules:
 
     return {
       title,
-      output: "Edit applied successfully.",
+      output: 'Edit applied successfully.',
       metadata: {
         diff,
         additions,
@@ -150,14 +169,17 @@ Rules:
 })
 
 function normalizeLineEndings(text: string): string {
-  return text.replaceAll("\r\n", "\n")
+  return text.replaceAll('\r\n', '\n')
 }
 
 // ============================================================================
 // Replacer System - 9 strategies tried in order for fuzzy matching
 // ============================================================================
 
-export type Replacer = (content: string, find: string) => Generator<string, void, unknown>
+export type Replacer = (
+  content: string,
+  find: string,
+) => Generator<string, void, unknown>
 
 // Similarity thresholds for block anchor fallback matching
 const SINGLE_CANDIDATE_SIMILARITY_THRESHOLD = 0.0
@@ -167,17 +189,23 @@ const MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD = 0.3
  * Levenshtein distance algorithm implementation
  */
 function levenshtein(a: string, b: string): number {
-  if (a === "" || b === "") {
+  if (a === '' || b === '') {
     return Math.max(a.length, b.length)
   }
-  const matrix = Array.from({ length: a.length + 1 }, (_, i) =>
-    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  const matrix = Array.from({length: a.length + 1}, (_, i) =>
+    Array.from({length: b.length + 1}, (_, j) =>
+      i === 0 ? j : j === 0 ? i : 0,
+    ),
   )
 
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost)
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost,
+      )
     }
   }
   return matrix[a.length][b.length]
@@ -194,10 +222,10 @@ export const SimpleReplacer: Replacer = function* (_content, find) {
  * Strategy 2: Line-trimmed matching - ignores leading/trailing whitespace per line
  */
 export const LineTrimmedReplacer: Replacer = function* (content, find) {
-  const originalLines = content.split("\n")
-  const searchLines = find.split("\n")
+  const originalLines = content.split('\n')
+  const searchLines = find.split('\n')
 
-  if (searchLines[searchLines.length - 1] === "") {
+  if (searchLines[searchLines.length - 1] === '') {
     searchLines.pop()
   }
 
@@ -237,14 +265,14 @@ export const LineTrimmedReplacer: Replacer = function* (content, find) {
  * Strategy 3: Block anchor matching - uses first/last lines as anchors with Levenshtein
  */
 export const BlockAnchorReplacer: Replacer = function* (content, find) {
-  const originalLines = content.split("\n")
-  const searchLines = find.split("\n")
+  const originalLines = content.split('\n')
+  const searchLines = find.split('\n')
 
   if (searchLines.length < 3) {
     return
   }
 
-  if (searchLines[searchLines.length - 1] === "") {
+  if (searchLines[searchLines.length - 1] === '') {
     searchLines.pop()
   }
 
@@ -253,7 +281,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
   const searchBlockSize = searchLines.length
 
   // Collect all candidate positions where both anchors match
-  const candidates: Array<{ startLine: number; endLine: number }> = []
+  const candidates: Array<{startLine: number; endLine: number}> = []
   for (let i = 0; i < originalLines.length; i++) {
     if (originalLines[i].trim() !== firstLineSearch) {
       continue
@@ -261,7 +289,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
 
     for (let j = i + 2; j < originalLines.length; j++) {
       if (originalLines[j].trim() === lastLineSearch) {
-        candidates.push({ startLine: i, endLine: j })
+        candidates.push({startLine: i, endLine: j})
         break
       }
     }
@@ -273,7 +301,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
 
   // Handle single candidate scenario (using relaxed threshold)
   if (candidates.length === 1) {
-    const { startLine, endLine } = candidates[0]
+    const {startLine, endLine} = candidates[0]
     const actualBlockSize = endLine - startLine + 1
 
     let similarity = 0
@@ -316,11 +344,11 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
   }
 
   // Calculate similarity for multiple candidates
-  let bestMatch: { startLine: number; endLine: number } | null = null
+  let bestMatch: {startLine: number; endLine: number} | null = null
   let maxSimilarity = -1
 
   for (const candidate of candidates) {
-    const { startLine, endLine } = candidate
+    const {startLine, endLine} = candidate
     const actualBlockSize = endLine - startLine + 1
 
     let similarity = 0
@@ -349,7 +377,7 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
   }
 
   if (maxSimilarity >= MULTIPLE_CANDIDATES_SIMILARITY_THRESHOLD && bestMatch) {
-    const { startLine, endLine } = bestMatch
+    const {startLine, endLine} = bestMatch
     let matchStartIndex = 0
     for (let k = 0; k < startLine; k++) {
       matchStartIndex += originalLines[k].length + 1
@@ -368,11 +396,14 @@ export const BlockAnchorReplacer: Replacer = function* (content, find) {
 /**
  * Strategy 4: Whitespace normalized matching - collapses all whitespace
  */
-export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) {
-  const normalizeWhitespace = (text: string) => text.replace(/\s+/g, " ").trim()
+export const WhitespaceNormalizedReplacer: Replacer = function* (
+  content,
+  find,
+) {
+  const normalizeWhitespace = (text: string) => text.replace(/\s+/g, ' ').trim()
   const normalizedFind = normalizeWhitespace(find)
 
-  const lines = content.split("\n")
+  const lines = content.split('\n')
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     if (normalizeWhitespace(line) === normalizedFind) {
@@ -382,7 +413,9 @@ export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) 
       if (normalizedLine.includes(normalizedFind)) {
         const words = find.trim().split(/\s+/)
         if (words.length > 0) {
-          const pattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+")
+          const pattern = words
+            .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .join('\\s+')
           try {
             const regex = new RegExp(pattern)
             const match = line.match(regex)
@@ -398,12 +431,12 @@ export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) 
   }
 
   // Handle multi-line matches
-  const findLines = find.split("\n")
+  const findLines = find.split('\n')
   if (findLines.length > 1) {
     for (let i = 0; i <= lines.length - findLines.length; i++) {
       const block = lines.slice(i, i + findLines.length)
-      if (normalizeWhitespace(block.join("\n")) === normalizedFind) {
-        yield block.join("\n")
+      if (normalizeWhitespace(block.join('\n')) === normalizedFind) {
+        yield block.join('\n')
       }
     }
   }
@@ -414,7 +447,7 @@ export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) 
  */
 export const IndentationFlexibleReplacer: Replacer = function* (content, find) {
   const removeIndentation = (text: string) => {
-    const lines = text.split("\n")
+    const lines = text.split('\n')
     const nonEmptyLines = lines.filter((line) => line.trim().length > 0)
     if (nonEmptyLines.length === 0) return text
 
@@ -422,18 +455,20 @@ export const IndentationFlexibleReplacer: Replacer = function* (content, find) {
       ...nonEmptyLines.map((line) => {
         const match = line.match(/^(\s*)/)
         return match ? match[1].length : 0
-      })
+      }),
     )
 
-    return lines.map((line) => (line.trim().length === 0 ? line : line.slice(minIndent))).join("\n")
+    return lines
+      .map((line) => (line.trim().length === 0 ? line : line.slice(minIndent)))
+      .join('\n')
   }
 
   const normalizedFind = removeIndentation(find)
-  const contentLines = content.split("\n")
-  const findLines = find.split("\n")
+  const contentLines = content.split('\n')
+  const findLines = find.split('\n')
 
   for (let i = 0; i <= contentLines.length - findLines.length; i++) {
-    const block = contentLines.slice(i, i + findLines.length).join("\n")
+    const block = contentLines.slice(i, i + findLines.length).join('\n')
     if (removeIndentation(block) === normalizedFind) {
       yield block
     }
@@ -447,24 +482,24 @@ export const EscapeNormalizedReplacer: Replacer = function* (content, find) {
   const unescapeString = (str: string): string => {
     return str.replace(/\\(n|t|r|'|"|`|\\|\n|\$)/g, (match, capturedChar) => {
       switch (capturedChar) {
-        case "n":
-          return "\n"
-        case "t":
-          return "\t"
-        case "r":
-          return "\r"
+        case 'n':
+          return '\n'
+        case 't':
+          return '\t'
+        case 'r':
+          return '\r'
         case "'":
           return "'"
         case '"':
           return '"'
-        case "`":
-          return "`"
-        case "\\":
-          return "\\"
-        case "\n":
-          return "\n"
-        case "$":
-          return "$"
+        case '`':
+          return '`'
+        case '\\':
+          return '\\'
+        case '\n':
+          return '\n'
+        case '$':
+          return '$'
         default:
           return match
       }
@@ -477,11 +512,11 @@ export const EscapeNormalizedReplacer: Replacer = function* (content, find) {
     yield unescapedFind
   }
 
-  const lines = content.split("\n")
-  const findLines = unescapedFind.split("\n")
+  const lines = content.split('\n')
+  const findLines = unescapedFind.split('\n')
 
   for (let i = 0; i <= lines.length - findLines.length; i++) {
-    const block = lines.slice(i, i + findLines.length).join("\n")
+    const block = lines.slice(i, i + findLines.length).join('\n')
     const unescapedBlock = unescapeString(block)
 
     if (unescapedBlock === unescapedFind) {
@@ -504,11 +539,11 @@ export const TrimmedBoundaryReplacer: Replacer = function* (content, find) {
     yield trimmedFind
   }
 
-  const lines = content.split("\n")
-  const findLines = find.split("\n")
+  const lines = content.split('\n')
+  const findLines = find.split('\n')
 
   for (let i = 0; i <= lines.length - findLines.length; i++) {
-    const block = lines.slice(i, i + findLines.length).join("\n")
+    const block = lines.slice(i, i + findLines.length).join('\n')
 
     if (block.trim() === trimmedFind) {
       yield block
@@ -520,16 +555,16 @@ export const TrimmedBoundaryReplacer: Replacer = function* (content, find) {
  * Strategy 8: Context-aware matching - uses surrounding lines for context
  */
 export const ContextAwareReplacer: Replacer = function* (content, find) {
-  const findLines = find.split("\n")
+  const findLines = find.split('\n')
   if (findLines.length < 3) {
     return
   }
 
-  if (findLines[findLines.length - 1] === "") {
+  if (findLines[findLines.length - 1] === '') {
     findLines.pop()
   }
 
-  const contentLines = content.split("\n")
+  const contentLines = content.split('\n')
 
   const firstLine = findLines[0].trim()
   const lastLine = findLines[findLines.length - 1].trim()
@@ -540,7 +575,7 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
     for (let j = i + 2; j < contentLines.length; j++) {
       if (contentLines[j].trim() === lastLine) {
         const blockLines = contentLines.slice(i, j + 1)
-        const block = blockLines.join("\n")
+        const block = blockLines.join('\n')
 
         if (blockLines.length === findLines.length) {
           let matchingLines = 0
@@ -558,7 +593,10 @@ export const ContextAwareReplacer: Replacer = function* (content, find) {
             }
           }
 
-          if (totalNonEmptyLines === 0 || matchingLines / totalNonEmptyLines >= 0.5) {
+          if (
+            totalNonEmptyLines === 0 ||
+            matchingLines / totalNonEmptyLines >= 0.5
+          ) {
             yield block
             break
           }
@@ -588,12 +626,12 @@ export const MultiOccurrenceReplacer: Replacer = function* (content, find) {
  * Trim diff output for cleaner display
  */
 export function trimDiff(diff: string): string {
-  const lines = diff.split("\n")
+  const lines = diff.split('\n')
   const contentLines = lines.filter(
     (line) =>
-      (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) &&
-      !line.startsWith("---") &&
-      !line.startsWith("+++")
+      (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ')) &&
+      !line.startsWith('---') &&
+      !line.startsWith('+++'),
   )
 
   if (contentLines.length === 0) return diff
@@ -610,9 +648,9 @@ export function trimDiff(diff: string): string {
 
   const trimmedLines = lines.map((line) => {
     if (
-      (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) &&
-      !line.startsWith("---") &&
-      !line.startsWith("+++")
+      (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ')) &&
+      !line.startsWith('---') &&
+      !line.startsWith('+++')
     ) {
       const prefix = line[0]
       const lineContent = line.slice(1)
@@ -621,15 +659,20 @@ export function trimDiff(diff: string): string {
     return line
   })
 
-  return trimmedLines.join("\n")
+  return trimmedLines.join('\n')
 }
 
 /**
  * Main replace function - tries all 9 replacer strategies in order
  */
-export function replace(content: string, oldString: string, newString: string, replaceAll = false): string {
+export function replace(
+  content: string,
+  oldString: string,
+  newString: string,
+  replaceAll = false,
+): string {
   if (oldString === newString) {
-    throw new Error("oldString and newString must be different")
+    throw new Error('oldString and newString must be different')
   }
 
   let notFound = true
@@ -654,14 +697,18 @@ export function replace(content: string, oldString: string, newString: string, r
       }
       const lastIndex = content.lastIndexOf(search)
       if (index !== lastIndex) continue
-      return content.substring(0, index) + newString + content.substring(index + search.length)
+      return (
+        content.substring(0, index) +
+        newString +
+        content.substring(index + search.length)
+      )
     }
   }
 
   if (notFound) {
-    throw new Error("oldString not found in content")
+    throw new Error('oldString not found in content')
   }
   throw new Error(
-    "Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match."
+    'Found multiple matches for oldString. Provide more surrounding lines in oldString to identify the correct match.',
   )
 }

@@ -9,11 +9,11 @@
  * - Kept core functionality: files() for glob, filepath() for binary path
  */
 
-import { spawn } from "child_process"
-import * as path from "path"
-import * as fs from "fs"
-import * as os from "os"
-import { getSpawnEnvironment } from "../context/environment"
+import {spawn} from 'child_process'
+import * as path from 'path'
+import * as fs from 'fs'
+import * as os from 'os'
+import {getSpawnEnvironment} from '../context/environment'
 
 export namespace Ripgrep {
   let cachedPath: string | null = null
@@ -26,14 +26,14 @@ export namespace Ripgrep {
     if (cachedPath) return cachedPath
 
     // Check PATH first
-    const proc = spawn("which", ["rg"])
+    const proc = spawn('which', ['rg'])
     const result = await new Promise<string>((resolve) => {
-      let output = ""
-      proc.stdout.on("data", (data) => {
+      let output = ''
+      proc.stdout.on('data', (data) => {
         output += data.toString()
       })
-      proc.on("close", (code) => {
-        resolve(code === 0 ? output.trim() : "")
+      proc.on('close', (code) => {
+        resolve(code === 0 ? output.trim() : '')
       })
     })
 
@@ -43,15 +43,15 @@ export namespace Ripgrep {
     }
 
     // Check ~/bin
-    const homeBinPath = path.join(os.homedir(), "bin", "rg")
+    const homeBinPath = path.join(os.homedir(), 'bin', 'rg')
     if (fs.existsSync(homeBinPath)) {
       cachedPath = homeBinPath
       return homeBinPath
     }
 
     throw new Error(
-      "ripgrep not found. Install with: apt install ripgrep\n" +
-        "Or download manually to ~/bin/rg"
+      'ripgrep not found. Install with: apt install ripgrep\n' +
+        'Or download manually to ~/bin/rg',
     )
   }
 
@@ -68,9 +68,9 @@ export namespace Ripgrep {
   }): AsyncGenerator<string, void, unknown> {
     const rgPath = await filepath()
 
-    const args = ["--files", "--glob=!.git/*"]
-    if (input.follow !== false) args.push("--follow")
-    if (input.hidden !== false) args.push("--hidden")
+    const args = ['--files', '--glob=!.git/*']
+    if (input.follow !== false) args.push('--follow')
+    if (input.hidden !== false) args.push('--hidden')
     if (input.maxDepth !== undefined) args.push(`--max-depth=${input.maxDepth}`)
     if (input.glob) {
       for (const g of input.glob) {
@@ -81,7 +81,7 @@ export namespace Ripgrep {
     // Verify cwd exists
     if (!fs.existsSync(input.cwd) || !fs.statSync(input.cwd).isDirectory()) {
       throw Object.assign(new Error(`No such directory: '${input.cwd}'`), {
-        code: "ENOENT",
+        code: 'ENOENT',
         errno: -2,
         path: input.cwd,
       })
@@ -89,16 +89,16 @@ export namespace Ripgrep {
 
     const proc = spawn(rgPath, args, {
       cwd: input.cwd,
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ['ignore', 'pipe', 'ignore'],
       env: getSpawnEnvironment(),
     })
 
-    let buffer = ""
+    let buffer = ''
 
     for await (const chunk of proc.stdout) {
       buffer += chunk.toString()
       const lines = buffer.split(/\r?\n/)
-      buffer = lines.pop() || ""
+      buffer = lines.pop() || ''
 
       for (const line of lines) {
         if (line) yield line
@@ -109,7 +109,7 @@ export namespace Ripgrep {
 
     // Wait for process to exit
     await new Promise<void>((resolve, reject) => {
-      proc.on("close", (code) => {
+      proc.on('close', (code) => {
         // Exit code 1 means no matches (which is fine)
         // Exit code 2 means some error (but may have partial results)
         if (code !== 0 && code !== 1 && code !== 2) {
@@ -118,7 +118,7 @@ export namespace Ripgrep {
           resolve()
         }
       })
-      proc.on("error", reject)
+      proc.on('error', reject)
     })
   }
 }

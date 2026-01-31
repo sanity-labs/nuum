@@ -5,26 +5,26 @@
  * Only ANTHROPIC_API_KEY is required.
  */
 
-import { z } from "zod";
+import {z} from 'zod'
 
 export namespace Config {
   /**
    * Model tiers for different use cases.
    * See arch spec for token budget rationale.
    */
-  export type ModelTier = "reasoning" | "workhorse" | "fast";
+  export type ModelTier = 'reasoning' | 'workhorse' | 'fast'
 
   export const Schema = z.object({
-    provider: z.string().default("anthropic"),
+    provider: z.string().default('anthropic'),
     models: z.object({
       /** Main agent, LTM reflection - best judgment (Opus 4.5, 200k context) */
-      reasoning: z.string().default("claude-opus-4-5-20251101"),
+      reasoning: z.string().default('claude-opus-4-5-20251101'),
       /** Memory management, search - high context (Sonnet 4.5, 1M beta) */
-      workhorse: z.string().default("claude-sonnet-4-5-20250929"),
+      workhorse: z.string().default('claude-sonnet-4-5-20250929'),
       /** Quick classifications - fast response (Haiku 4.5, 200k context) */
-      fast: z.string().default("claude-haiku-4-5-20251001"),
+      fast: z.string().default('claude-haiku-4-5-20251001'),
     }),
-    db: z.string().default("./agent.db"),
+    db: z.string().default('./agent.db'),
     tokenBudgets: z.object({
       /** Main agent context limit (Opus 200k, leave room for response) */
       mainAgentContext: z.number().default(180_000),
@@ -45,18 +45,18 @@ export namespace Config {
       /** LTM consolidation worker budget (Sonnet 1M beta) */
       ltmConsolidateBudget: z.number().default(512_000),
     }),
-  });
+  })
 
-  export type Config = z.infer<typeof Schema>;
+  export type Config = z.infer<typeof Schema>
 
-  let cached: Config | null = null;
+  let cached: Config | null = null
 
   /**
    * Get the current configuration.
    * Loads from environment variables with sensible defaults.
    */
   export function get(): Config {
-    if (cached) return cached;
+    if (cached) return cached
 
     cached = Schema.parse({
       provider: process.env.AGENT_PROVIDER,
@@ -67,23 +67,23 @@ export namespace Config {
       },
       db: process.env.AGENT_DB,
       tokenBudgets: {},
-    });
+    })
 
-    return cached;
+    return cached
   }
 
   /**
    * Get the model ID for a given tier.
    */
   export function resolveModelTier(tier: ModelTier): string {
-    const config = get();
-    return config.models[tier];
+    const config = get()
+    return config.models[tier]
   }
 
   /**
    * Reset cached config (for testing).
    */
   export function reset(): void {
-    cached = null;
+    cached = null
   }
 }

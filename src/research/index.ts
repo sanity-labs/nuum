@@ -15,10 +15,10 @@
  * is on-demand and returns a report of what it learned.
  */
 
-import type { Storage } from "../storage"
-import { activity } from "../util/activity-log"
-import { runSubAgent, type SubAgentResult } from "../sub-agent"
-import { buildResearchTools, type ResearchToolResult } from "./tools"
+import type {Storage} from '../storage'
+import {activity} from '../util/activity-log'
+import {runSubAgent, type SubAgentResult} from '../sub-agent'
+import {buildResearchTools, type ResearchToolResult} from './tools'
 
 const MAX_RESEARCH_TURNS = 50
 
@@ -117,57 +117,62 @@ export async function runResearch(
   storage: Storage,
   topic: string,
 ): Promise<ResearchResult> {
-  activity.research?.start?.("Research", { topic: topic.slice(0, 50) })
+  activity.research?.start?.('Research', {topic: topic.slice(0, 50)})
 
   const result: ResearchResult = {
-    report: "",
+    report: '',
     entriesCreated: [],
     entriesUpdated: [],
     turnsUsed: 0,
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: {inputTokens: 0, outputTokens: 0},
   }
 
   // Build tools with result tracking
-  const { tools, getLastResult } = buildResearchTools(storage)
+  const {tools, getLastResult} = buildResearchTools(storage)
 
   // Run sub-agent
-  const subAgentResult: SubAgentResult<string | null> = await runSubAgent(storage, {
-    name: "research",
-    taskPrompt: buildResearchPrompt(topic),
-    tools,
-    finishToolName: "finish_research",
-    extractResult: () => {
-      // Report is captured via onToolResult
-      return result.report || null
-    },
-    tier: "workhorse",
-    maxTurns: MAX_RESEARCH_TURNS,
-    maxTokens: 8192,
-    onToolResult: (toolCallId) => {
-      const toolResult = getLastResult(toolCallId)
-      if (!toolResult) return
+  const subAgentResult: SubAgentResult<string | null> = await runSubAgent(
+    storage,
+    {
+      name: 'research',
+      taskPrompt: buildResearchPrompt(topic),
+      tools,
+      finishToolName: 'finish_research',
+      extractResult: () => {
+        // Report is captured via onToolResult
+        return result.report || null
+      },
+      tier: 'workhorse',
+      maxTurns: MAX_RESEARCH_TURNS,
+      maxTokens: 8192,
+      onToolResult: (toolCallId) => {
+        const toolResult = getLastResult(toolCallId)
+        if (!toolResult) return
 
-      if (toolResult.entryCreated && toolResult.slug) {
-        result.entriesCreated.push(toolResult.slug)
-      }
-      if (toolResult.entryUpdated && toolResult.slug) {
-        result.entriesUpdated.push(toolResult.slug)
-      }
-      if (toolResult.report) {
-        result.report = toolResult.report
-      }
+        if (toolResult.entryCreated && toolResult.slug) {
+          result.entriesCreated.push(toolResult.slug)
+        }
+        if (toolResult.entryUpdated && toolResult.slug) {
+          result.entriesUpdated.push(toolResult.slug)
+        }
+        if (toolResult.report) {
+          result.report = toolResult.report
+        }
+      },
     },
-  })
+  )
 
   result.turnsUsed = subAgentResult.turnsUsed
   result.usage = subAgentResult.usage
 
   // If no report was set, the agent ended without calling finish_research
   if (!result.report) {
-    result.report = "Research ended without explicit report."
+    result.report = 'Research ended without explicit report.'
   }
 
-  activity.research?.complete?.(`${result.turnsUsed} turns, ${result.entriesCreated.length} created, ${result.entriesUpdated.length} updated`)
+  activity.research?.complete?.(
+    `${result.turnsUsed} turns, ${result.entriesCreated.length} created, ${result.entriesUpdated.length} updated`,
+  )
 
   return result
 }

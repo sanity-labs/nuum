@@ -14,10 +14,10 @@
  * but has different tools focused on memory research.
  */
 
-import type { Storage } from "../storage"
-import { activity } from "../util/activity-log"
-import { runSubAgent, type SubAgentResult } from "../sub-agent"
-import { buildReflectionTools } from "./tools"
+import type {Storage} from '../storage'
+import {activity} from '../util/activity-log'
+import {runSubAgent, type SubAgentResult} from '../sub-agent'
+import {buildReflectionTools} from './tools'
 
 /**
  * Result of a reflection.
@@ -70,26 +70,30 @@ export async function runReflection(
   storage: Storage,
   question: string,
 ): Promise<ReflectionResult> {
-  activity.reflection.start("Memory research", { question: question.slice(0, 50) })
+  activity.reflection.start('Memory research', {
+    question: question.slice(0, 50),
+  })
 
   // Build tools
-  const { tools, getAnswer } = buildReflectionTools({ storage })
+  const {tools, getAnswer} = buildReflectionTools({storage})
 
   // Run sub-agent
   const result: SubAgentResult<string | null> = await runSubAgent(storage, {
-    name: "reflection",
+    name: 'reflection',
     taskPrompt: buildReflectionPrompt(question),
     tools,
-    finishToolName: "finish_reflection",
+    finishToolName: 'finish_reflection',
     extractResult: getAnswer,
-    tier: "workhorse",
+    tier: 'workhorse',
     maxTurns: 20,
     maxTokens: 4096,
   })
 
-  const answer = result.result ?? "Unable to find relevant information."
+  const answer = result.result ?? 'Unable to find relevant information.'
 
-  activity.reflection.complete(`${result.turnsUsed} turns, ${answer.length} chars`)
+  activity.reflection.complete(
+    `${result.turnsUsed} turns, ${answer.length} chars`,
+  )
 
   return {
     answer,

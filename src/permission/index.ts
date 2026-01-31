@@ -7,25 +7,25 @@
  * standalone permission evaluation with in-memory ruleset.
  */
 
-import { z } from "zod"
-import os from "os"
-import { Wildcard } from "./wildcard"
-import { Log } from "../util/log"
+import {z} from 'zod'
+import os from 'os'
+import {Wildcard} from './wildcard'
+import {Log} from '../util/log'
 
-export { Wildcard } from "./wildcard"
+export {Wildcard} from './wildcard'
 
 export namespace Permission {
-  const log = Log.create({ service: "permission" })
+  const log = Log.create({service: 'permission'})
 
   function expand(pattern: string): string {
-    if (pattern.startsWith("~/")) return os.homedir() + pattern.slice(1)
-    if (pattern === "~") return os.homedir()
-    if (pattern.startsWith("$HOME/")) return os.homedir() + pattern.slice(5)
-    if (pattern.startsWith("$HOME")) return os.homedir() + pattern.slice(5)
+    if (pattern.startsWith('~/')) return os.homedir() + pattern.slice(1)
+    if (pattern === '~') return os.homedir()
+    if (pattern.startsWith('$HOME/')) return os.homedir() + pattern.slice(5)
+    if (pattern.startsWith('$HOME')) return os.homedir() + pattern.slice(5)
     return pattern
   }
 
-  export const Action = z.enum(["allow", "deny", "ask"])
+  export const Action = z.enum(['allow', 'deny', 'ask'])
   export type Action = z.infer<typeof Action>
 
   export const Rule = z.object({
@@ -50,15 +50,21 @@ export namespace Permission {
    * Evaluate a permission request against a ruleset.
    * Returns the matching rule, or a default "ask" rule if no match.
    */
-  export function evaluate(permission: string, pattern: string, ...rulesets: Ruleset[]): Rule {
+  export function evaluate(
+    permission: string,
+    pattern: string,
+    ...rulesets: Ruleset[]
+  ): Rule {
     const merged = merge(...rulesets)
-    log.info("evaluate", { permission, pattern, ruleset: merged })
+    log.info('evaluate', {permission, pattern, ruleset: merged})
 
     const match = merged.findLast(
-      (rule) => Wildcard.match(permission, rule.permission) && Wildcard.match(pattern, rule.pattern),
+      (rule) =>
+        Wildcard.match(permission, rule.permission) &&
+        Wildcard.match(pattern, rule.pattern),
     )
 
-    return match ?? { action: "ask", permission, pattern: "*" }
+    return match ?? {action: 'ask', permission, pattern: '*'}
   }
 
   /**
@@ -66,22 +72,22 @@ export namespace Permission {
    * Used for Phase 1 auto-approve mode.
    */
   export function allowAll(): Ruleset {
-    return [
-      { permission: "*", pattern: "*", action: "allow" },
-    ]
+    return [{permission: '*', pattern: '*', action: 'allow'}]
   }
 
   /**
    * Create a ruleset from a simple config object.
    */
-  export function fromConfig(config: Record<string, Action | Record<string, Action>>): Ruleset {
+  export function fromConfig(
+    config: Record<string, Action | Record<string, Action>>,
+  ): Ruleset {
     const ruleset: Ruleset = []
     for (const [key, value] of Object.entries(config)) {
-      if (typeof value === "string") {
+      if (typeof value === 'string') {
         ruleset.push({
           permission: key,
           action: value,
-          pattern: "*",
+          pattern: '*',
         })
         continue
       }
@@ -99,14 +105,16 @@ export namespace Permission {
   /** User rejected without message - halts execution */
   export class RejectedError extends Error {
     constructor() {
-      super("The user rejected permission to use this specific tool call.")
+      super('The user rejected permission to use this specific tool call.')
     }
   }
 
   /** User rejected with message - continues with guidance */
   export class CorrectedError extends Error {
     constructor(message: string) {
-      super(`The user rejected permission to use this specific tool call with the following feedback: ${message}`)
+      super(
+        `The user rejected permission to use this specific tool call with the following feedback: ${message}`,
+      )
     }
   }
 

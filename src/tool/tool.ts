@@ -7,7 +7,7 @@
  * standalone tool definition pattern.
  */
 
-import { z } from "zod"
+import {z} from 'zod'
 
 export namespace Tool {
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -38,7 +38,7 @@ export namespace Tool {
      * Report metadata about tool execution progress.
      * Used for streaming UI updates.
      */
-    metadata(input: { title?: string; metadata?: M }): void
+    metadata(input: {title?: string; metadata?: M}): void
 
     /**
      * Request permission for an operation.
@@ -59,7 +59,10 @@ export namespace Tool {
   /**
    * Tool definition with parameters schema and execute function
    */
-  export interface Definition<Parameters extends z.ZodType = z.ZodType, M extends Metadata = Metadata> {
+  export interface Definition<
+    Parameters extends z.ZodType = z.ZodType,
+    M extends Metadata = Metadata,
+  > {
     description: string
     parameters: Parameters
     execute(args: z.infer<Parameters>, ctx: Context<M>): Promise<Result<M>>
@@ -68,13 +71,18 @@ export namespace Tool {
   /**
    * Registered tool info
    */
-  export interface Info<Parameters extends z.ZodType = z.ZodType, M extends Metadata = Metadata> {
+  export interface Info<
+    Parameters extends z.ZodType = z.ZodType,
+    M extends Metadata = Metadata,
+  > {
     id: string
     definition: Definition<Parameters, M>
   }
 
-  export type InferParameters<T extends Info> = T extends Info<infer P> ? z.infer<P> : never
-  export type InferMetadata<T extends Info> = T extends Info<z.ZodType, infer M> ? M : never
+  export type InferParameters<T extends Info> =
+    T extends Info<infer P> ? z.infer<P> : never
+  export type InferMetadata<T extends Info> =
+    T extends Info<z.ZodType, infer M> ? M : never
 
   /**
    * Define a tool with the given ID and definition.
@@ -94,11 +102,13 @@ export namespace Tool {
           definition.parameters.parse(args)
         } catch (error) {
           if (error instanceof z.ZodError) {
-            const issues = error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")
+            const issues = error.issues
+              .map((i) => `${i.path.join('.')}: ${i.message}`)
+              .join(', ')
             throw new Error(
               `The ${id} tool was called with invalid arguments: ${issues}.\n` +
                 `Please rewrite the input so it satisfies the expected schema.`,
-              { cause: error },
+              {cause: error},
             )
           }
           throw error
@@ -123,7 +133,7 @@ export namespace Tool {
     messageID: string
     abort?: AbortSignal
     callID?: string
-    onMetadata?: (input: { title?: string; metadata?: Metadata }) => void
+    onMetadata?: (input: {title?: string; metadata?: Metadata}) => void
   }): Context {
     return {
       sessionID: options.sessionID,

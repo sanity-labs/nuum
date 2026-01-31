@@ -8,14 +8,14 @@
  * ANTHROPIC_API_KEY set.
  */
 
-import { describe, it, expect, beforeEach } from "bun:test"
-import { createInMemoryStorage, type Storage } from "../storage"
-import { Identifier } from "../id"
-import type { TemporalMessage } from "../storage/schema"
-import type { CompactionConfig, CompactionResult } from "./compaction-agent"
+import {describe, it, expect, beforeEach} from 'bun:test'
+import {createInMemoryStorage, type Storage} from '../storage'
+import {Identifier} from '../id'
+import type {TemporalMessage} from '../storage/schema'
+import type {CompactionConfig, CompactionResult} from './compaction-agent'
 
-describe("CompactionResult interface", () => {
-  it("has the expected shape", () => {
+describe('CompactionResult interface', () => {
+  it('has the expected shape', () => {
     const result: CompactionResult = {
       distillationsCreated: 5,
       tokensBefore: 10000,
@@ -36,8 +36,8 @@ describe("CompactionResult interface", () => {
   })
 })
 
-describe("CompactionConfig interface", () => {
-  it("has the expected shape", () => {
+describe('CompactionConfig interface', () => {
+  it('has the expected shape', () => {
     const config: CompactionConfig = {
       compactionThreshold: 16000,
       compactionTarget: 8000,
@@ -48,7 +48,7 @@ describe("CompactionConfig interface", () => {
   })
 })
 
-describe("temporal storage for compaction", () => {
+describe('temporal storage for compaction', () => {
   let storage: Storage
 
   beforeEach(() => {
@@ -58,13 +58,16 @@ describe("temporal storage for compaction", () => {
   /**
    * Helper to add test messages to storage.
    */
-  async function addMessages(count: number, tokensPerMessage: number = 50): Promise<TemporalMessage[]> {
+  async function addMessages(
+    count: number,
+    tokensPerMessage: number = 50,
+  ): Promise<TemporalMessage[]> {
     const messages: TemporalMessage[] = []
     for (let i = 0; i < count; i++) {
       const msg: TemporalMessage = {
-        id: Identifier.ascending("message"),
-        type: i % 3 === 0 ? "user" : i % 3 === 1 ? "assistant" : "tool_result",
-        content: `Message ${i}: ${"x".repeat(tokensPerMessage * 4)}`,
+        id: Identifier.ascending('message'),
+        type: i % 3 === 0 ? 'user' : i % 3 === 1 ? 'assistant' : 'tool_result',
+        content: `Message ${i}: ${'x'.repeat(tokensPerMessage * 4)}`,
         tokenEstimate: tokensPerMessage,
         createdAt: new Date().toISOString(),
       }
@@ -74,25 +77,25 @@ describe("temporal storage for compaction", () => {
     return messages
   }
 
-  it("estimates uncompacted tokens correctly", async () => {
+  it('estimates uncompacted tokens correctly', async () => {
     await addMessages(20, 50)
 
     const tokens = await storage.temporal.estimateUncompactedTokens()
     expect(tokens).toBe(1000) // 20 * 50
   })
 
-  it("tracks summaries correctly", async () => {
+  it('tracks summaries correctly', async () => {
     const msgs = await addMessages(10, 50)
 
     // Create a summary
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 1,
       startId: msgs[0].id,
       endId: msgs[4].id,
-      narrative: "Test summary",
-      keyObservations: JSON.stringify(["Observation 1"]),
-      tags: JSON.stringify(["test"]),
+      narrative: 'Test summary',
+      keyObservations: JSON.stringify(['Observation 1']),
+      tags: JSON.stringify(['test']),
       tokenEstimate: 100,
       createdAt: new Date().toISOString(),
     })
@@ -104,30 +107,30 @@ describe("temporal storage for compaction", () => {
     expect(summaries[0].endId).toBe(msgs[4].id)
   })
 
-  it("calculates highest order summaries correctly", async () => {
+  it('calculates highest order summaries correctly', async () => {
     const msgs = await addMessages(20, 50)
 
     // Create two order-1 summaries
-    const summary1Id = Identifier.ascending("summary")
+    const summary1Id = Identifier.ascending('summary')
     await storage.temporal.createSummary({
       id: summary1Id,
       orderNum: 1,
       startId: msgs[0].id,
       endId: msgs[4].id,
-      narrative: "Summary 1",
+      narrative: 'Summary 1',
       keyObservations: JSON.stringify([]),
       tags: JSON.stringify([]),
       tokenEstimate: 100,
       createdAt: new Date().toISOString(),
     })
 
-    const summary2Id = Identifier.ascending("summary")
+    const summary2Id = Identifier.ascending('summary')
     await storage.temporal.createSummary({
       id: summary2Id,
       orderNum: 1,
       startId: msgs[5].id,
       endId: msgs[9].id,
-      narrative: "Summary 2",
+      narrative: 'Summary 2',
       keyObservations: JSON.stringify([]),
       tags: JSON.stringify([]),
       tokenEstimate: 100,
@@ -136,11 +139,11 @@ describe("temporal storage for compaction", () => {
 
     // Create order-2 summary that subsumes both
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 2,
       startId: msgs[0].id,
       endId: msgs[9].id,
-      narrative: "Higher order summary",
+      narrative: 'Higher order summary',
       keyObservations: JSON.stringify([]),
       tags: JSON.stringify([]),
       tokenEstimate: 150,
@@ -153,7 +156,7 @@ describe("temporal storage for compaction", () => {
     expect(highest[0].orderNum).toBe(2)
   })
 
-  it("gets last summary end id correctly", async () => {
+  it('gets last summary end id correctly', async () => {
     const msgs = await addMessages(10, 50)
 
     // Initially no summaries
@@ -162,11 +165,11 @@ describe("temporal storage for compaction", () => {
 
     // Add a summary
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 1,
       startId: msgs[0].id,
       endId: msgs[4].id,
-      narrative: "Test",
+      narrative: 'Test',
       keyObservations: JSON.stringify([]),
       tags: JSON.stringify([]),
       tokenEstimate: 100,
@@ -178,26 +181,27 @@ describe("temporal storage for compaction", () => {
   })
 })
 
-describe("view reconstruction with IDs", () => {
+describe('view reconstruction with IDs', () => {
   let storage: Storage
 
   beforeEach(() => {
     storage = createInMemoryStorage()
   })
 
-  it("includes message IDs in reconstructed turns", async () => {
+  it('includes message IDs in reconstructed turns', async () => {
     // Add a message
-    const msgId = Identifier.ascending("message")
+    const msgId = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: msgId,
-      type: "user",
-      content: "Hello world",
+      type: 'user',
+      content: 'Hello world',
       tokenEstimate: 10,
       createdAt: new Date().toISOString(),
     })
 
     // Import the view functions
-    const { buildTemporalView, reconstructHistoryAsTurns } = await import("./view")
+    const {buildTemporalView, reconstructHistoryAsTurns} =
+      await import('./view')
     const messages = await storage.temporal.getMessages()
     const summaries = await storage.temporal.getSummaries()
 
@@ -211,18 +215,18 @@ describe("view reconstruction with IDs", () => {
 
     // Should have one user turn with the ID prefix (now includes timestamp)
     expect(turns).toHaveLength(1)
-    expect(turns[0].role).toBe("user")
+    expect(turns[0].role).toBe('user')
     expect(turns[0].content).toContain(`id:${msgId}]`) // ID is present (with timestamp prefix)
-    expect(turns[0].content).toContain("Hello world")
+    expect(turns[0].content).toContain('Hello world')
   })
 
-  it("includes summary ranges in reconstructed turns", async () => {
+  it('includes summary ranges in reconstructed turns', async () => {
     // Add messages
     const msgs: TemporalMessage[] = []
     for (let i = 0; i < 5; i++) {
       const msg: TemporalMessage = {
-        id: Identifier.ascending("message"),
-        type: i % 2 === 0 ? "user" : "assistant",
+        id: Identifier.ascending('message'),
+        type: i % 2 === 0 ? 'user' : 'assistant',
         content: `Message ${i}`,
         tokenEstimate: 10,
         createdAt: new Date().toISOString(),
@@ -233,18 +237,19 @@ describe("view reconstruction with IDs", () => {
 
     // Add a summary
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 1,
       startId: msgs[0].id,
       endId: msgs[2].id,
-      narrative: "Earlier conversation happened",
-      keyObservations: JSON.stringify(["Key point"]),
+      narrative: 'Earlier conversation happened',
+      keyObservations: JSON.stringify(['Key point']),
       tags: JSON.stringify([]),
       tokenEstimate: 50,
       createdAt: new Date().toISOString(),
     })
 
-    const { buildTemporalView, reconstructHistoryAsTurns } = await import("./view")
+    const {buildTemporalView, reconstructHistoryAsTurns} =
+      await import('./view')
     const messages = await storage.temporal.getMessages()
     const summaries = await storage.temporal.getSummaries()
 
@@ -257,10 +262,11 @@ describe("view reconstruction with IDs", () => {
     const turns = reconstructHistoryAsTurns(view)
 
     // Should have summary turn with from/to IDs (summaries are assistant messages)
-    const summaryTurn = turns.find(t =>
-      t.role === "assistant" &&
-      typeof t.content === "string" &&
-      t.content.includes("[distilled from:")
+    const summaryTurn = turns.find(
+      (t) =>
+        t.role === 'assistant' &&
+        typeof t.content === 'string' &&
+        t.content.includes('[distilled from:'),
     )
     expect(summaryTurn).toBeDefined()
     expect(summaryTurn!.content).toContain(`from:${msgs[0].id}`)

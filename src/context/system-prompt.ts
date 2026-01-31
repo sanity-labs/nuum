@@ -4,15 +4,15 @@
  * Builds the static part of the agent's context: identity, behavior,
  * skills, and instructions. This is shared across all workloads (main agent,
  * compaction, consolidation) for prompt caching efficiency.
- * 
+ *
  * NOTE: Present state (mission, status, tasks) is NOT included here.
  * It changes frequently and would invalidate the cache. Instead, the
  * present_* tools return the full state, so it appears in conversation
  * history when the agent checks or updates it.
  */
 
-import type { Storage } from "../storage"
-import { getSkills, formatSkillsCatalog } from "../skills"
+import type {Storage} from '../storage'
+import {getSkills, formatSkillsCatalog} from '../skills'
 
 /**
  * Estimate token count from text (rough approximation).
@@ -28,10 +28,12 @@ function estimateTokens(text: string): number {
  * This is the "who you are" part of the agent context. It's identical
  * across all workloads to maximize prompt caching.
  */
-export async function buildSystemPrompt(storage: Storage): Promise<{ prompt: string; tokens: number }> {
+export async function buildSystemPrompt(
+  storage: Storage,
+): Promise<{prompt: string; tokens: number}> {
   // Get identity and behavior from LTM
-  const identity = await storage.ltm.read("identity")
-  const behavior = await storage.ltm.read("behavior")
+  const identity = await storage.ltm.read('identity')
+  const behavior = await storage.ltm.read('behavior')
 
   // Build system prompt (no temporal history - that goes in conversation turns)
   // NOTE: Present state is NOT included - it changes frequently and would
@@ -112,5 +114,5 @@ ${systemPromptOverlay}
 `
   }
 
-  return { prompt, tokens: estimateTokens(prompt) }
+  return {prompt, tokens: estimateTokens(prompt)}
 }

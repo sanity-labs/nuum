@@ -8,10 +8,10 @@
  * there's no way to create multiple sessions.
  */
 
-import { eq } from "drizzle-orm"
-import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite"
-import { sessionConfig } from "./schema"
-import { Identifier } from "../id"
+import {eq} from 'drizzle-orm'
+import type {BunSQLiteDatabase} from 'drizzle-orm/bun-sqlite'
+import {sessionConfig} from './schema'
+import {Identifier} from '../id'
 
 type DrizzleDB = BunSQLiteDatabase<Record<string, never>>
 type AnyDrizzleDB = BunSQLiteDatabase<any>
@@ -23,13 +23,13 @@ type AnyDrizzleDB = BunSQLiteDatabase<any>
 export interface SessionStorage {
   /** Get the session ID (creates on first call, returns same forever) */
   getId(): Promise<string>
-  
+
   /** Get when the session was created */
   getCreatedAt(): Promise<string>
-  
+
   /** Get the CAST-provided system prompt overlay (null if not set) */
   getSystemPromptOverlay(): Promise<string | null>
-  
+
   /** Set the CAST-provided system prompt overlay */
   setSystemPromptOverlay(value: string | null): Promise<void>
 }
@@ -37,7 +37,9 @@ export interface SessionStorage {
 /**
  * Create session storage backed by SQLite.
  */
-export function createSessionStorage(db: DrizzleDB | AnyDrizzleDB): SessionStorage {
+export function createSessionStorage(
+  db: DrizzleDB | AnyDrizzleDB,
+): SessionStorage {
   // Cache the session ID in memory after first read
   let cachedId: string | null = null
 
@@ -52,7 +54,7 @@ export function createSessionStorage(db: DrizzleDB | AnyDrizzleDB): SessionStora
       const existing = await db
         .select()
         .from(sessionConfig)
-        .where(eq(sessionConfig.key, "id"))
+        .where(eq(sessionConfig.key, 'id'))
         .get()
 
       if (existing?.value) {
@@ -61,12 +63,12 @@ export function createSessionStorage(db: DrizzleDB | AnyDrizzleDB): SessionStora
       }
 
       // First call ever - create the session
-      const id = Identifier.ascending("session")
+      const id = Identifier.ascending('session')
       const now = new Date().toISOString()
 
       await db.insert(sessionConfig).values([
-        { key: "id", value: id },
-        { key: "created_at", value: now },
+        {key: 'id', value: id},
+        {key: 'created_at', value: now},
       ])
 
       cachedId = id
@@ -80,7 +82,7 @@ export function createSessionStorage(db: DrizzleDB | AnyDrizzleDB): SessionStora
       const row = await db
         .select()
         .from(sessionConfig)
-        .where(eq(sessionConfig.key, "created_at"))
+        .where(eq(sessionConfig.key, 'created_at'))
         .get()
 
       return row?.value ?? new Date().toISOString()
@@ -90,7 +92,7 @@ export function createSessionStorage(db: DrizzleDB | AnyDrizzleDB): SessionStora
       const row = await db
         .select()
         .from(sessionConfig)
-        .where(eq(sessionConfig.key, "system_prompt_overlay"))
+        .where(eq(sessionConfig.key, 'system_prompt_overlay'))
         .get()
 
       return row?.value ?? null
@@ -101,15 +103,15 @@ export function createSessionStorage(db: DrizzleDB | AnyDrizzleDB): SessionStora
         // Delete the key
         await db
           .delete(sessionConfig)
-          .where(eq(sessionConfig.key, "system_prompt_overlay"))
+          .where(eq(sessionConfig.key, 'system_prompt_overlay'))
       } else {
         // Upsert the value
         await db
           .insert(sessionConfig)
-          .values({ key: "system_prompt_overlay", value })
+          .values({key: 'system_prompt_overlay', value})
           .onConflictDoUpdate({
             target: sessionConfig.key,
-            set: { value },
+            set: {value},
           })
       }
     },

@@ -5,9 +5,9 @@
  * Gives the agent visibility into what's running and scheduled.
  */
 
-import { z } from "zod"
-import type { TasksStorage, BackgroundTask, Alarm } from "../storage"
-import { Tool } from "./tool"
+import {z} from 'zod'
+import type {TasksStorage, BackgroundTask, Alarm} from '../storage'
+import {Tool} from './tool'
 
 /**
  * Context required for list_tasks tool.
@@ -45,7 +45,7 @@ function formatTimeUntil(firesAt: string): string {
   const now = Date.now()
   const remaining = Math.floor((fires - now) / 1000)
 
-  if (remaining <= 0) return "due now"
+  if (remaining <= 0) return 'due now'
   if (remaining < 60) return `in ${remaining}s`
   if (remaining < 3600) return `in ${Math.floor(remaining / 60)}m`
   const hours = Math.floor(remaining / 3600)
@@ -59,10 +59,10 @@ function formatTimeUntil(firesAt: string): string {
 function formatTask(task: BackgroundTask): string {
   const elapsed = formatElapsed(task.createdAt)
   const statusIcon = {
-    running: "🔄",
-    completed: "✅",
-    failed: "❌",
-    killed: "💀",
+    running: '🔄',
+    completed: '✅',
+    failed: '❌',
+    killed: '💀',
   }[task.status]
 
   let line = `${statusIcon} #${task.id.slice(-8)} ${task.type}: "${task.description}" (${task.status}, ${elapsed})`
@@ -95,22 +95,25 @@ const parameters = z.object({
   includeCompleted: z
     .boolean()
     .optional()
-    .describe("Include completed/failed tasks (default: false, only shows running)"),
+    .describe(
+      'Include completed/failed tasks (default: false, only shows running)',
+    ),
 })
 
 export const ListTasksTool = Tool.define<typeof parameters, ListTasksMetadata>(
-  "list_tasks",
+  'list_tasks',
   {
     description: DESCRIPTION,
     parameters,
-    async execute({ includeCompleted }, ctx) {
+    async execute({includeCompleted}, ctx) {
       // Get tasks storage from context extra
-      const tasksStorage = (ctx as Tool.Context & { extra: ListTasksToolContext }).extra?.tasks
+      const tasksStorage = (ctx as Tool.Context & {extra: ListTasksToolContext})
+        .extra?.tasks
 
       if (!tasksStorage) {
         return {
-          output: "Error: Tasks storage not available",
-          title: "List tasks failed",
+          output: 'Error: Tasks storage not available',
+          title: 'List tasks failed',
           metadata: {
             runningCount: 0,
             alarmCount: 0,
@@ -120,9 +123,13 @@ export const ListTasksTool = Tool.define<typeof parameters, ListTasksMetadata>(
       }
 
       // Get tasks
-      const allTasks = await tasksStorage.listTasks({ limit: 20 })
-      const runningTasks = allTasks.filter((t: BackgroundTask) => t.status === "running")
-      const completedTasks = allTasks.filter((t: BackgroundTask) => t.status !== "running")
+      const allTasks = await tasksStorage.listTasks({limit: 20})
+      const runningTasks = allTasks.filter(
+        (t: BackgroundTask) => t.status === 'running',
+      )
+      const completedTasks = allTasks.filter(
+        (t: BackgroundTask) => t.status !== 'running',
+      )
 
       // Get alarms
       const alarms = await tasksStorage.listAlarms()
@@ -132,7 +139,7 @@ export const ListTasksTool = Tool.define<typeof parameters, ListTasksMetadata>(
 
       // Running tasks
       if (runningTasks.length > 0) {
-        lines.push("**Running Tasks:**")
+        lines.push('**Running Tasks:**')
         for (const task of runningTasks) {
           lines.push(formatTask(task))
         }
@@ -140,8 +147,8 @@ export const ListTasksTool = Tool.define<typeof parameters, ListTasksMetadata>(
 
       // Alarms
       if (alarms.length > 0) {
-        if (lines.length > 0) lines.push("")
-        lines.push("**Scheduled Alarms:**")
+        if (lines.length > 0) lines.push('')
+        lines.push('**Scheduled Alarms:**')
         for (const alarm of alarms) {
           lines.push(formatAlarm(alarm))
         }
@@ -149,8 +156,8 @@ export const ListTasksTool = Tool.define<typeof parameters, ListTasksMetadata>(
 
       // Completed tasks (if requested)
       if (includeCompleted && completedTasks.length > 0) {
-        if (lines.length > 0) lines.push("")
-        lines.push("**Recent Completed/Failed:**")
+        if (lines.length > 0) lines.push('')
+        lines.push('**Recent Completed/Failed:**')
         for (const task of completedTasks.slice(0, 10)) {
           lines.push(formatTask(task))
         }
@@ -159,8 +166,8 @@ export const ListTasksTool = Tool.define<typeof parameters, ListTasksMetadata>(
       // Empty state
       if (lines.length === 0) {
         return {
-          output: "No background tasks or alarms.",
-          title: "No tasks",
+          output: 'No background tasks or alarms.',
+          title: 'No tasks',
           metadata: {
             runningCount: 0,
             alarmCount: 0,
@@ -170,7 +177,7 @@ export const ListTasksTool = Tool.define<typeof parameters, ListTasksMetadata>(
       }
 
       return {
-        output: lines.join("\n"),
+        output: lines.join('\n'),
         title: `${runningTasks.length} running, ${alarms.length} alarms`,
         metadata: {
           runningCount: runningTasks.length,

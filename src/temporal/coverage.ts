@@ -9,7 +9,7 @@
  * - A message is covered if: message.id >= summary.startId AND message.id <= summary.endId
  */
 
-import type { TemporalSummary } from "../storage/schema"
+import type {TemporalSummary} from '../storage/schema'
 
 /**
  * Check if a message is covered by any summary.
@@ -20,7 +20,7 @@ import type { TemporalSummary } from "../storage/schema"
  */
 export function isCoveredBySummary(
   messageId: string,
-  summaries: Pick<TemporalSummary, "startId" | "endId">[],
+  summaries: Pick<TemporalSummary, 'startId' | 'endId'>[],
 ): boolean {
   return summaries.some(
     (summary) => messageId >= summary.startId && messageId <= summary.endId,
@@ -39,8 +39,11 @@ export function isCoveredBySummary(
  * @returns true if a higher-order summary covers this summary's range
  */
 export function isSubsumedByHigherOrder(
-  summary: Pick<TemporalSummary, "id" | "orderNum" | "startId" | "endId">,
-  allSummaries: Pick<TemporalSummary, "id" | "orderNum" | "startId" | "endId">[],
+  summary: Pick<TemporalSummary, 'id' | 'orderNum' | 'startId' | 'endId'>,
+  allSummaries: Pick<
+    TemporalSummary,
+    'id' | 'orderNum' | 'startId' | 'endId'
+  >[],
 ): boolean {
   return allSummaries.some(
     (other) =>

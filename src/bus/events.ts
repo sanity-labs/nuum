@@ -5,8 +5,8 @@
  * Event bus pattern adapted from OpenCode (https://github.com/sst/opencode)
  */
 
-import { z } from "zod"
-import { BusEvent } from "./event"
+import {z} from 'zod'
+import {BusEvent} from './event'
 
 /**
  * Events namespace containing all miriad-code event definitions.
@@ -18,7 +18,7 @@ export namespace Events {
   // ─────────────────────────────────────────────────────────────────
 
   export const TemporalCompactionStarted = BusEvent.define(
-    "temporal.compaction.started",
+    'temporal.compaction.started',
     z.object({
       workerId: z.string(),
       targetTokens: z.number(),
@@ -30,7 +30,7 @@ export namespace Events {
   )
 
   export const TemporalSummaryCreated = BusEvent.define(
-    "temporal.summary.created",
+    'temporal.summary.created',
     z.object({
       summaryId: z.string(),
       order: z.number(),
@@ -41,7 +41,7 @@ export namespace Events {
   )
 
   export const TemporalCompactionComplete = BusEvent.define(
-    "temporal.compaction.complete",
+    'temporal.compaction.complete',
     z.object({
       workerId: z.string(),
       distillationsCreated: z.number(),
@@ -54,24 +54,30 @@ export namespace Events {
   // ─────────────────────────────────────────────────────────────────
 
   export const LTMConsolidationStarted = BusEvent.define(
-    "ltm.consolidation.started",
+    'ltm.consolidation.started',
     z.object({
       workerId: z.string(),
-      triggerReason: z.enum(["scheduled", "manual", "threshold"]),
+      triggerReason: z.enum(['scheduled', 'manual', 'threshold']),
     }),
   )
 
   export const LTMEntryUpdated = BusEvent.define(
-    "ltm.entry.updated",
+    'ltm.entry.updated',
     z.object({
       slug: z.string(),
-      operation: z.enum(["created", "updated", "deleted", "renamed", "reparented"]),
+      operation: z.enum([
+        'created',
+        'updated',
+        'deleted',
+        'renamed',
+        'reparented',
+      ]),
       version: z.number(),
     }),
   )
 
   export const LTMConsolidationComplete = BusEvent.define(
-    "ltm.consolidation.complete",
+    'ltm.consolidation.complete',
     z.object({
       workerId: z.string(),
       entriesModified: z.number(),
@@ -83,15 +89,19 @@ export namespace Events {
   // ─────────────────────────────────────────────────────────────────
 
   export const WorkerStarted = BusEvent.define(
-    "worker.started",
+    'worker.started',
     z.object({
       workerId: z.string(),
-      workerType: z.enum(["temporal-compact", "ltm-consolidate", "ltm-reflect"]),
+      workerType: z.enum([
+        'temporal-compact',
+        'ltm-consolidate',
+        'ltm-reflect',
+      ]),
     }),
   )
 
   export const WorkerCompleted = BusEvent.define(
-    "worker.completed",
+    'worker.completed',
     z.object({
       workerId: z.string(),
       workerType: z.string(),
@@ -99,7 +109,7 @@ export namespace Events {
   )
 
   export const WorkerFailed = BusEvent.define(
-    "worker.failed",
+    'worker.failed',
     z.object({
       workerId: z.string(),
       workerType: z.string(),
@@ -112,7 +122,7 @@ export namespace Events {
   // ─────────────────────────────────────────────────────────────────
 
   export const AgentTurnStarted = BusEvent.define(
-    "agent.turn.started",
+    'agent.turn.started',
     z.object({
       sessionId: z.string(),
       messageId: z.string(),
@@ -120,7 +130,7 @@ export namespace Events {
   )
 
   export const AgentTurnCompleted = BusEvent.define(
-    "agent.turn.completed",
+    'agent.turn.completed',
     z.object({
       sessionId: z.string(),
       messageId: z.string(),
@@ -130,7 +140,7 @@ export namespace Events {
   )
 
   export const ToolCallStarted = BusEvent.define(
-    "tool.call.started",
+    'tool.call.started',
     z.object({
       sessionId: z.string(),
       toolName: z.string(),
@@ -139,7 +149,7 @@ export namespace Events {
   )
 
   export const ToolCallCompleted = BusEvent.define(
-    "tool.call.completed",
+    'tool.call.completed',
     z.object({
       sessionId: z.string(),
       toolName: z.string(),
@@ -153,10 +163,10 @@ export namespace Events {
   // ─────────────────────────────────────────────────────────────────
 
   export const PresentStateUpdated = BusEvent.define(
-    "present.state.updated",
+    'present.state.updated',
     z.object({
       sessionId: z.string(),
-      field: z.enum(["mission", "status", "tasks"]),
+      field: z.enum(['mission', 'status', 'tasks']),
     }),
   )
 }

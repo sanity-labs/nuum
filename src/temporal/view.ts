@@ -15,12 +15,12 @@ import type {
   CoreToolMessage,
   ToolCallPart,
   ToolResultPart,
-} from "ai"
-import type { TemporalMessage, TemporalSummary } from "../storage/schema"
-import { isCoveredBySummary, isSubsumedByHigherOrder } from "./coverage"
-import { Log } from "../util/log"
+} from 'ai'
+import type {TemporalMessage, TemporalSummary} from '../storage/schema'
+import {isCoveredBySummary, isSubsumedByHigherOrder} from './coverage'
+import {Log} from '../util/log'
 
-const log = Log.create({ service: "temporal-view" })
+const log = Log.create({service: 'temporal-view'})
 
 export interface TemporalView {
   /** Summaries included in the view, sorted chronologically */
@@ -57,8 +57,10 @@ export interface BuildTemporalViewOptions {
  * that signals compaction should be triggered - but we NEVER drop content.
  * The agent always sees the complete history, just recursively summarized.
  */
-export function buildTemporalView(options: BuildTemporalViewOptions): TemporalView {
-  const { messages, summaries } = options
+export function buildTemporalView(
+  options: BuildTemporalViewOptions,
+): TemporalView {
+  const {messages, summaries} = options
 
   // Handle empty history
   if (messages.length === 0 && summaries.length === 0) {
@@ -66,35 +68,41 @@ export function buildTemporalView(options: BuildTemporalViewOptions): TemporalVi
       summaries: [],
       messages: [],
       totalTokens: 0,
-      breakdown: { summaryTokens: 0, messageTokens: 0 },
+      breakdown: {summaryTokens: 0, messageTokens: 0},
     }
   }
 
   // 1. Get all effective summaries (not subsumed by higher-order ones)
   // These represent the most compressed form of older history
   const effectiveSummaries = summaries.filter(
-    summary => !isSubsumedByHigherOrder(summary, summaries)
+    (summary) => !isSubsumedByHigherOrder(summary, summaries),
   )
 
   // 2. Get all messages NOT covered by any summary
   // These are recent messages that haven't been compacted yet
   const uncoveredMessages = messages.filter(
-    msg => !isCoveredBySummary(msg.id, summaries)
+    (msg) => !isCoveredBySummary(msg.id, summaries),
   )
 
   // Sort summaries chronologically (by startId)
-  const sortedSummaries = [...effectiveSummaries].sort(
-    (a, b) => a.startId.localeCompare(b.startId)
+  const sortedSummaries = [...effectiveSummaries].sort((a, b) =>
+    a.startId.localeCompare(b.startId),
   )
 
   // Sort messages chronologically (by id)
-  const sortedMessages = [...uncoveredMessages].sort(
-    (a, b) => a.id.localeCompare(b.id)
+  const sortedMessages = [...uncoveredMessages].sort((a, b) =>
+    a.id.localeCompare(b.id),
   )
 
   // Calculate token totals - no dropping, include everything
-  const summaryTokens = sortedSummaries.reduce((sum, s) => sum + s.tokenEstimate, 0)
-  const messageTokens = sortedMessages.reduce((sum, m) => sum + m.tokenEstimate, 0)
+  const summaryTokens = sortedSummaries.reduce(
+    (sum, s) => sum + s.tokenEstimate,
+    0,
+  )
+  const messageTokens = sortedMessages.reduce(
+    (sum, m) => sum + m.tokenEstimate,
+    0,
+  )
 
   return {
     summaries: sortedSummaries,
@@ -128,7 +136,10 @@ export function reconstructHistoryAsTurns(view: TemporalView): CoreMessage[] {
   let summaryIdx = 0
   let messageIdx = 0
 
-  while (summaryIdx < view.summaries.length || messageIdx < view.messages.length) {
+  while (
+    summaryIdx < view.summaries.length ||
+    messageIdx < view.messages.length
+  ) {
     const summary = view.summaries[summaryIdx]
     const message = view.messages[messageIdx]
 
@@ -143,24 +154,29 @@ export function reconstructHistoryAsTurns(view: TemporalView): CoreMessage[] {
       try {
         observations = JSON.parse(summary.keyObservations) as string[]
       } catch (error) {
-        log.error("failed to parse summary keyObservations", {
+        log.error('failed to parse summary keyObservations', {
           summaryId: summary.id,
           error: error instanceof Error ? error.message : String(error),
         })
       }
       let summaryContent = `[distilled from:${summary.startId} to:${summary.endId}]\n${summary.narrative}`
       if (observations.length > 0) {
-        summaryContent += "\n\nRetained facts:\n" + observations.map(o => `• ${o}`).join("\n")
+        summaryContent +=
+          '\n\nRetained facts:\n' + observations.map((o) => `• ${o}`).join('\n')
       }
 
       turns.push({
-        role: "assistant",
+        role: 'assistant',
         content: summaryContent,
       })
       summaryIdx++
     } else if (messageKey) {
       // Process message based on type
-      const processed = processMessageForTurn(message, view.messages, messageIdx)
+      const processed = processMessageForTurn(
+        message,
+        view.messages,
+        messageIdx,
+      )
       if (processed.turns.length > 0) {
         turns.push(...processed.turns)
       }
@@ -180,10 +196,10 @@ export function reconstructHistoryAsTurns(view: TemporalView): CoreMessage[] {
 function formatTimestamp(isoTimestamp: string): string {
   const date = new Date(isoTimestamp)
   const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  const hours = String(date.getHours()).padStart(2, "0")
-  const minutes = String(date.getMinutes()).padStart(2, "0")
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
@@ -191,7 +207,7 @@ function formatTimestamp(isoTimestamp: string): string {
  * Format message content with ID and timestamp prefix.
  * The ID allows the compaction agent to reference specific messages.
  * The timestamp helps agents reason about time passage.
- * 
+ *
  * Note: These prefixes are for internal reference only - agents should not
  * echo them in their responses.
  */
@@ -202,7 +218,11 @@ function formatWithId(id: string, timestamp: string, content: string): string {
 /**
  * Format an ID range with timestamp (for tool call sequences).
  */
-function formatIdRange(firstId: string, lastId: string, timestamp: string): string {
+function formatIdRange(
+  firstId: string,
+  lastId: string,
+  timestamp: string,
+): string {
   if (firstId === lastId) {
     return `[${formatTimestamp(timestamp)} id:${firstId}]`
   }
@@ -226,15 +246,16 @@ function ensureAllToolCallsHaveResults(
   const completeResults = [...toolResults]
   for (let i = toolResults.length; i < toolCalls.length; i++) {
     const call = toolCalls[i]
-    log.warn("synthesizing error result for orphaned tool call", {
+    log.warn('synthesizing error result for orphaned tool call', {
       toolCallId: call.toolCallId,
       toolName: call.toolName,
     })
     completeResults.push({
-      type: "tool-result",
+      type: 'tool-result',
       toolCallId: call.toolCallId,
       toolName: call.toolName,
-      result: "Error: Tool execution failed (no result recorded - possible crash or disk full)",
+      result:
+        'Error: Tool execution failed (no result recorded - possible crash or disk full)',
     })
   }
   return completeResults
@@ -249,15 +270,18 @@ function processMessageForTurn(
   message: TemporalMessage,
   allMessages: TemporalMessage[],
   currentIdx: number,
-): { turns: CoreMessage[]; nextIdx: number } {
+): {turns: CoreMessage[]; nextIdx: number} {
   const turns: CoreMessage[] = []
 
   switch (message.type) {
-    case "user":
-      turns.push({ role: "user", content: formatWithId(message.id, message.createdAt, message.content) })
-      return { turns, nextIdx: currentIdx + 1 }
+    case 'user':
+      turns.push({
+        role: 'user',
+        content: formatWithId(message.id, message.createdAt, message.content),
+      })
+      return {turns, nextIdx: currentIdx + 1}
 
-    case "assistant": {
+    case 'assistant': {
       // Check if next messages are tool calls from same assistant turn
       const toolCalls: ToolCallPart[] = []
       const toolResults: ToolResultPart[] = []
@@ -265,19 +289,26 @@ function processMessageForTurn(
       let lastMessageId = message.id
 
       // Look ahead for tool_call messages
-      while (nextIdx < allMessages.length && allMessages[nextIdx].type === "tool_call") {
+      while (
+        nextIdx < allMessages.length &&
+        allMessages[nextIdx].type === 'tool_call'
+      ) {
         const toolCallMsg = allMessages[nextIdx]
         lastMessageId = toolCallMsg.id
         try {
-          const parsed = JSON.parse(toolCallMsg.content) as { name: string; args: unknown; toolCallId?: string }
+          const parsed = JSON.parse(toolCallMsg.content) as {
+            name: string
+            args: unknown
+            toolCallId?: string
+          }
           toolCalls.push({
-            type: "tool-call",
+            type: 'tool-call',
             toolCallId: parsed.toolCallId || `call_${nextIdx}`,
             toolName: parsed.name,
             args: parsed.args as Record<string, unknown>,
           })
         } catch (error) {
-          log.error("failed to parse tool call message", {
+          log.error('failed to parse tool call message', {
             messageId: toolCallMsg.id,
             error: error instanceof Error ? error.message : String(error),
           })
@@ -286,13 +317,16 @@ function processMessageForTurn(
       }
 
       // Look ahead for corresponding tool_result messages
-      while (nextIdx < allMessages.length && allMessages[nextIdx].type === "tool_result") {
+      while (
+        nextIdx < allMessages.length &&
+        allMessages[nextIdx].type === 'tool_result'
+      ) {
         const toolResultMsg = allMessages[nextIdx]
         lastMessageId = toolResultMsg.id
         const correspondingCall = toolCalls[toolResults.length]
         if (correspondingCall) {
           toolResults.push({
-            type: "tool-result",
+            type: 'tool-result',
             toolCallId: correspondingCall.toolCallId,
             toolName: correspondingCall.toolName,
             result: toolResultMsg.content,
@@ -303,37 +337,53 @@ function processMessageForTurn(
 
       if (toolCalls.length > 0) {
         // Assistant message with tool calls - prefix with ID range
-        const assistantContent: (ToolCallPart | { type: "text"; text: string })[] = []
-        const idPrefix = formatIdRange(message.id, lastMessageId, message.createdAt)
+        const assistantContent: (
+          | ToolCallPart
+          | {type: 'text'; text: string}
+        )[] = []
+        const idPrefix = formatIdRange(
+          message.id,
+          lastMessageId,
+          message.createdAt,
+        )
         if (message.content) {
-          assistantContent.push({ type: "text", text: `${idPrefix} ${message.content}` })
+          assistantContent.push({
+            type: 'text',
+            text: `${idPrefix} ${message.content}`,
+          })
         } else {
-          assistantContent.push({ type: "text", text: idPrefix })
+          assistantContent.push({type: 'text', text: idPrefix})
         }
         assistantContent.push(...toolCalls)
 
         const assistantMsg: CoreAssistantMessage = {
-          role: "assistant",
+          role: 'assistant',
           content: assistantContent,
         }
         turns.push(assistantMsg)
 
         // Tool results - ensure all tool calls have results (synthesize errors for missing ones)
-        const completeResults = ensureAllToolCallsHaveResults(toolCalls, toolResults)
+        const completeResults = ensureAllToolCallsHaveResults(
+          toolCalls,
+          toolResults,
+        )
         const toolMsg: CoreToolMessage = {
-          role: "tool",
+          role: 'tool',
           content: completeResults,
         }
         turns.push(toolMsg)
       } else {
         // Simple assistant message without tools
-        turns.push({ role: "assistant", content: formatWithId(message.id, message.createdAt, message.content) })
+        turns.push({
+          role: 'assistant',
+          content: formatWithId(message.id, message.createdAt, message.content),
+        })
       }
 
-      return { turns, nextIdx }
+      return {turns, nextIdx}
     }
 
-    case "tool_call": {
+    case 'tool_call': {
       // Tool calls without a preceding assistant message (model made tool calls without text)
       // Process them as a standalone assistant turn with tool calls
       const toolCalls: ToolCallPart[] = []
@@ -343,19 +393,26 @@ function processMessageForTurn(
       let lastMessageId = message.id
 
       // Consume all consecutive tool_call messages
-      while (nextIdx < allMessages.length && allMessages[nextIdx].type === "tool_call") {
+      while (
+        nextIdx < allMessages.length &&
+        allMessages[nextIdx].type === 'tool_call'
+      ) {
         const toolCallMsg = allMessages[nextIdx]
         lastMessageId = toolCallMsg.id
         try {
-          const parsed = JSON.parse(toolCallMsg.content) as { name: string; args: unknown; toolCallId?: string }
+          const parsed = JSON.parse(toolCallMsg.content) as {
+            name: string
+            args: unknown
+            toolCallId?: string
+          }
           toolCalls.push({
-            type: "tool-call",
+            type: 'tool-call',
             toolCallId: parsed.toolCallId || `call_${nextIdx}`,
             toolName: parsed.name,
             args: parsed.args as Record<string, unknown>,
           })
         } catch (error) {
-          log.error("failed to parse tool call message", {
+          log.error('failed to parse tool call message', {
             messageId: toolCallMsg.id,
             error: error instanceof Error ? error.message : String(error),
           })
@@ -364,13 +421,16 @@ function processMessageForTurn(
       }
 
       // Consume corresponding tool_result messages
-      while (nextIdx < allMessages.length && allMessages[nextIdx].type === "tool_result") {
+      while (
+        nextIdx < allMessages.length &&
+        allMessages[nextIdx].type === 'tool_result'
+      ) {
         const toolResultMsg = allMessages[nextIdx]
         lastMessageId = toolResultMsg.id
         const correspondingCall = toolCalls[toolResults.length]
         if (correspondingCall) {
           toolResults.push({
-            type: "tool-result",
+            type: 'tool-result',
             toolCallId: correspondingCall.toolCallId,
             toolName: correspondingCall.toolName,
             result: toolResultMsg.content,
@@ -381,48 +441,53 @@ function processMessageForTurn(
 
       if (toolCalls.length > 0) {
         // Create assistant message with tool calls (no text content)
-        const idPrefix = formatIdRange(firstMessageId, lastMessageId, message.createdAt)
-        const assistantContent: (ToolCallPart | { type: "text"; text: string })[] = [
-          { type: "text", text: idPrefix },
-          ...toolCalls,
-        ]
+        const idPrefix = formatIdRange(
+          firstMessageId,
+          lastMessageId,
+          message.createdAt,
+        )
+        const assistantContent: (
+          | ToolCallPart
+          | {type: 'text'; text: string}
+        )[] = [{type: 'text', text: idPrefix}, ...toolCalls]
 
         const assistantMsg: CoreAssistantMessage = {
-          role: "assistant",
+          role: 'assistant',
           content: assistantContent,
         }
         turns.push(assistantMsg)
 
         // Tool results - ensure all tool calls have results (synthesize errors for missing ones)
-        const completeResults = ensureAllToolCallsHaveResults(toolCalls, toolResults)
+        const completeResults = ensureAllToolCallsHaveResults(
+          toolCalls,
+          toolResults,
+        )
         const toolMsg: CoreToolMessage = {
-          role: "tool",
+          role: 'tool',
           content: completeResults,
         }
         turns.push(toolMsg)
       }
 
-      return { turns, nextIdx }
+      return {turns, nextIdx}
     }
 
-    case "tool_result":
+    case 'tool_result':
       // Tool result without preceding tool_call - this is truly orphaned
-      log.warn("orphaned tool_result in history reconstruction", {
+      log.warn('orphaned tool_result in history reconstruction', {
         messageId: message.id,
       })
-      return { turns: [], nextIdx: currentIdx + 1 }
+      return {turns: [], nextIdx: currentIdx + 1}
 
-    case "system":
+    case 'system':
       // System messages become assistant messages (context injections)
       turns.push({
-        role: "assistant",
+        role: 'assistant',
         content: `[system ${formatWithId(message.id, message.createdAt, message.content)}]`,
       })
-      return { turns, nextIdx: currentIdx + 1 }
+      return {turns, nextIdx: currentIdx + 1}
 
     default:
-      return { turns: [], nextIdx: currentIdx + 1 }
+      return {turns: [], nextIdx: currentIdx + 1}
   }
 }
-
-

@@ -5,18 +5,18 @@
  * history into optimized working memory.
  */
 
-import { tool } from "ai"
-import type { CoreTool } from "ai"
-import { z } from "zod"
-import type { Storage } from "../storage"
-import type { TemporalSummaryInsert } from "../storage/schema"
-import { Identifier } from "../id"
-import { Log } from "../util/log"
-import { activity } from "../util/activity-log"
-import { estimateSummaryTokens, type SummaryInput } from "../temporal/summary"
-import { getEffectiveViewTokens } from "../temporal/compaction"
+import {tool} from 'ai'
+import type {CoreTool} from 'ai'
+import {z} from 'zod'
+import type {Storage} from '../storage'
+import type {TemporalSummaryInsert} from '../storage/schema'
+import {Identifier} from '../id'
+import {Log} from '../util/log'
+import {activity} from '../util/activity-log'
+import {estimateSummaryTokens, type SummaryInput} from '../temporal/summary'
+import {getEffectiveViewTokens} from '../temporal/compaction'
 
-const log = Log.create({ service: "distillation-tools" })
+const log = Log.create({service: 'distillation-tools'})
 
 /**
  * Result of a distillation tool execution.
@@ -49,26 +49,26 @@ export function buildCreateDistillationTool(
   ctx: DistillationToolContext,
   results: Map<string, DistillationToolResult>,
 ): CoreTool {
-  const { storage, validIds, targetTokens } = ctx
+  const {storage, validIds, targetTokens} = ctx
 
   return tool({
     description:
-      "Distill a range of conversation into optimized working memory. Focuses on retaining actionable intelligence while excising noise. Eliminating old cruft is also a form of optimization.",
+      'Distill a range of conversation into optimized working memory. Focuses on retaining actionable intelligence while excising noise. Eliminating old cruft is also a form of optimization.',
     parameters: z.object({
       startId: z
         .string()
         .describe(
-          "ULID of the first item to include (inclusive). Must be a visible ID.",
+          'ULID of the first item to include (inclusive). Must be a visible ID.',
         ),
       endId: z
         .string()
         .describe(
-          "ULID of the last item to include (inclusive). Must be a visible ID.",
+          'ULID of the last item to include (inclusive). Must be a visible ID.',
         ),
       operationalContext: z
         .string()
         .describe(
-          "Focused paragraph of what was accomplished, decided, or learned. Write as working notes - concrete and actionable, not narrative prose. Include file paths, specific values, and rationale for decisions.",
+          'Focused paragraph of what was accomplished, decided, or learned. Write as working notes - concrete and actionable, not narrative prose. Include file paths, specific values, and rationale for decisions.',
         ),
       retainedFacts: z
         .array(z.string())
@@ -77,8 +77,8 @@ export function buildCreateDistillationTool(
         ),
     }),
     execute: async (
-      { startId, endId, operationalContext, retainedFacts },
-      { toolCallId },
+      {startId, endId, operationalContext, retainedFacts},
+      {toolCallId},
     ) => {
       // Validate IDs
       if (!validIds.has(startId)) {
@@ -123,10 +123,7 @@ export function buildCreateDistillationTool(
       if (startIdx > 0) {
         const startMsg = sortedMessages[startIdx]
         const prevMsg = sortedMessages[startIdx - 1]
-        if (
-          startMsg?.type === "tool_result" &&
-          prevMsg?.type === "tool_call"
-        ) {
+        if (startMsg?.type === 'tool_result' && prevMsg?.type === 'tool_call') {
           adjustedStartId = prevMsg.id
         }
       }
@@ -136,7 +133,7 @@ export function buildCreateDistillationTool(
       if (endIdx >= 0 && endIdx < sortedMessages.length - 1) {
         const endMsg = sortedMessages[endIdx]
         const nextMsg = sortedMessages[endIdx + 1]
-        if (endMsg?.type === "tool_call" && nextMsg?.type === "tool_result") {
+        if (endMsg?.type === 'tool_call' && nextMsg?.type === 'tool_result') {
           adjustedEndId = nextMsg.id
         }
       }
@@ -161,7 +158,7 @@ export function buildCreateDistillationTool(
       }
 
       const summaryInsert: TemporalSummaryInsert = {
-        id: Identifier.ascending("summary"),
+        id: Identifier.ascending('summary'),
         orderNum: newOrder,
         startId: adjustedStartId,
         endId: adjustedEndId,
@@ -175,11 +172,10 @@ export function buildCreateDistillationTool(
       await storage.temporal.createSummary(summaryInsert)
 
       // Note if boundaries were adjusted to preserve tool call pairs
-      const wasAdjusted =
-        adjustedStartId !== startId || adjustedEndId !== endId
+      const wasAdjusted = adjustedStartId !== startId || adjustedEndId !== endId
       const adjustmentNote = wasAdjusted
         ? ` (adjusted to ${adjustedStartId} → ${adjustedEndId} to preserve tool call pairs)`
-        : ""
+        : ''
 
       // Get current token count to report progress
       const currentTokens = await getEffectiveViewTokens(storage.temporal)
@@ -189,11 +185,11 @@ export function buildCreateDistillationTool(
         : `\n\n**Status:** ${currentTokens.toLocaleString()} tokens (target: ${targetTokens.toLocaleString()}, need to distill ~${(currentTokens - targetTokens).toLocaleString()} more)`
 
       activity.distillation.info(
-        `Created order-${newOrder} distillation (${summaryInsert.tokenEstimate} tokens, ${retainedFacts.length} facts) → ${currentTokens.toLocaleString()} tokens${atTarget ? " ✓" : ""}`,
+        `Created order-${newOrder} distillation (${summaryInsert.tokenEstimate} tokens, ${retainedFacts.length} facts) → ${currentTokens.toLocaleString()} tokens${atTarget ? ' ✓' : ''}`,
       )
 
       const result: DistillationToolResult = {
-        output: `Created order-${newOrder} distillation covering ${adjustedStartId} → ${adjustedEndId} (~${summaryInsert.tokenEstimate} tokens, ${retainedFacts.length} facts retained).${adjustmentNote}${subsumedSummaries.length > 0 ? ` Subsumed ${subsumedSummaries.length} existing distillations.` : ""}${tokenStatus}`,
+        output: `Created order-${newOrder} distillation covering ${adjustedStartId} → ${adjustedEndId} (~${summaryInsert.tokenEstimate} tokens, ${retainedFacts.length} facts retained).${adjustmentNote}${subsumedSummaries.length > 0 ? ` Subsumed ${subsumedSummaries.length} existing distillations.` : ''}${tokenStatus}`,
         done: false,
         distillationCreated: true,
       }
@@ -214,7 +210,7 @@ export function buildFinishDistillationTool(
 ): CoreTool {
   return tool({
     description:
-      "Signal that working memory optimization is complete. Write a contextual summary for your future self explaining what you compressed and what you retained.",
+      'Signal that working memory optimization is complete. Write a contextual summary for your future self explaining what you compressed and what you retained.',
     parameters: z.object({
       summary: z
         .string()
@@ -222,8 +218,8 @@ export function buildFinishDistillationTool(
           "A note to your future self: what did you compress and what key information did you retain? Example: 'Combined the three debugging sessions into one distillation - retained the key insight about the race condition and the fix in src/agent/loop.ts.'",
         ),
     }),
-    execute: async ({ summary }, { toolCallId }) => {
-      log.info("distillation finished", { summary })
+    execute: async ({summary}, {toolCallId}) => {
+      log.info('distillation finished', {summary})
       const result: DistillationToolResult = {
         output: `Distillation complete`,
         done: true,

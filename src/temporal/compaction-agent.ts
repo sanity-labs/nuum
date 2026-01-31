@@ -19,23 +19,23 @@
  * 4. Loops until the token budget target is met
  */
 
-import type { CoreMessage, LanguageModel } from "ai"
-import type { Storage } from "../storage"
-import type { TemporalMessage, TemporalSummary } from "../storage/schema"
-import { Provider } from "../provider"
-import { Log } from "../util/log"
-import { Config } from "../config"
-import { buildAgentContext, buildConversationHistory } from "../context"
-import { runAgentLoop, stopOnTool } from "../agent/loop"
-import { getEffectiveViewTokens } from "./compaction"
-import { Identifier } from "../id"
+import type {CoreMessage, LanguageModel} from 'ai'
+import type {Storage} from '../storage'
+import type {TemporalMessage, TemporalSummary} from '../storage/schema'
+import {Provider} from '../provider'
+import {Log} from '../util/log'
+import {Config} from '../config'
+import {buildAgentContext, buildConversationHistory} from '../context'
+import {runAgentLoop, stopOnTool} from '../agent/loop'
+import {getEffectiveViewTokens} from './compaction'
+import {Identifier} from '../id'
 import {
   buildDistillationTools,
   type DistillationToolResult,
-} from "../tool/distillation"
-import { activity } from "../util/activity-log"
+} from '../tool/distillation'
+import {activity} from '../util/activity-log'
 
-const log = Log.create({ service: "compaction-agent" })
+const log = Log.create({service: 'compaction-agent'})
 
 const MAX_COMPACTION_TURNS = 10
 
@@ -93,7 +93,7 @@ Your working memory (conversation history) needs to be optimized for effective a
 **Target size:** ~${targetTokens.toLocaleString()} tokens
 ${
   underTarget
-    ? "**Status:** Already at/under target. You may clean up noise if you see any, or call finish_distillation."
+    ? '**Status:** Already at/under target. You may clean up noise if you see any, or call finish_distillation.'
     : `**To distill:** ~${(currentTokens - targetTokens).toLocaleString()} tokens`
 }
 **Recency buffer:** ${recencyBuffer} most recent messages are protected
@@ -188,7 +188,7 @@ function collectValidIds(
   messages: TemporalMessage[],
   summaries: TemporalSummary[],
   recencyBuffer: number,
-): { validIds: Set<string>; recencyCutoffId: string | null } {
+): {validIds: Set<string>; recencyCutoffId: string | null} {
   const ids = new Set<string>()
 
   // Sort messages chronologically
@@ -197,7 +197,7 @@ function collectValidIds(
   // Determine the cutoff point - messages before this can be summarized
   const cutoffIndex = Math.max(0, sortedMessages.length - recencyBuffer)
   const recencyCutoffId =
-    cutoffIndex > 0 ? sortedMessages[cutoffIndex - 1]?.id ?? null : null
+    cutoffIndex > 0 ? (sortedMessages[cutoffIndex - 1]?.id ?? null) : null
 
   // Add summary boundary IDs (only if they're before the cutoff)
   for (const summary of summaries) {
@@ -212,7 +212,7 @@ function collectValidIds(
     ids.add(sortedMessages[i].id)
   }
 
-  return { validIds: ids, recencyCutoffId }
+  return {validIds: ids, recencyCutoffId}
 }
 
 /**
@@ -227,14 +227,14 @@ export async function runCompaction(
     tokensBefore: 0,
     tokensAfter: 0,
     turnsUsed: 0,
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: {inputTokens: 0, outputTokens: 0},
   }
 
   // Get initial token count (effective view = what actually goes to agent)
   result.tokensBefore = await getEffectiveViewTokens(storage.temporal)
 
   if (result.tokensBefore <= config.compactionTarget && !config.force) {
-    log.info("skipping compaction - already under target", {
+    log.info('skipping compaction - already under target', {
       current: result.tokensBefore,
       target: config.compactionTarget,
     })
@@ -242,7 +242,7 @@ export async function runCompaction(
     return result
   }
 
-  log.info("starting distillation", {
+  log.info('starting distillation', {
     tokensBefore: result.tokensBefore,
     target: config.compactionTarget,
   })
@@ -253,7 +253,7 @@ export async function runCompaction(
 
   // Get models - prefer reasoning tier (Opus) but fall back to workhorse (Sonnet)
   // if the prompt is too long for Opus's 200K context limit
-  let model: LanguageModel = Provider.getModelForTier("reasoning")
+  let model: LanguageModel = Provider.getModelForTier('reasoning')
   let usingFallbackModel = false
 
   // Outer loop: agent controls when to stop via finish_distillation
@@ -275,13 +275,13 @@ export async function runCompaction(
     // Get recency buffer from config - these messages are protected from summarization
     const appConfig = Config.get()
     const recencyBuffer = appConfig.tokenBudgets.recencyBufferMessages
-    const { validIds, recencyCutoffId } = collectValidIds(
+    const {validIds, recencyCutoffId} = collectValidIds(
       allMessages,
       allSummaries,
       recencyBuffer,
     )
 
-    log.debug("compaction valid IDs", {
+    log.debug('compaction valid IDs', {
       totalMessages: allMessages.length,
       validIds: validIds.size,
       recencyBuffer,
@@ -289,7 +289,7 @@ export async function runCompaction(
     })
 
     // Build tools with execute callbacks (must rebuild each turn as validIds changes)
-    const { tools, getLastResult } = buildDistillationTools({
+    const {tools, getLastResult} = buildDistillationTools({
       storage,
       validIds,
       targetTokens: config.compactionTarget,
@@ -305,7 +305,7 @@ export async function runCompaction(
     // Agent messages: refreshed history + compaction task
     const initialMessages: CoreMessage[] = [
       ...refreshedHistoryTurns,
-      { role: "user", content: `[SYSTEM: ${taskPrompt}]` },
+      {role: 'user', content: `[SYSTEM: ${taskPrompt}]`},
     ]
 
     // Run the inner agent loop using the generic loop abstraction
@@ -320,7 +320,7 @@ export async function runCompaction(
         maxTokens: 4096,
         temperature: 0,
         maxTurns: 5,
-        isDone: stopOnTool("finish_distillation"),
+        isDone: stopOnTool('finish_distillation'),
         onToolResult: (toolCallId, toolName) => {
           // Track distillations created using our result tracking map
           const toolResult = getLastResult(toolCallId)
@@ -335,15 +335,16 @@ export async function runCompaction(
       })
     } catch (error) {
       // Check if this is a "prompt is too long" error and we haven't already fallen back
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      if (errorMessage.includes("prompt is too long") && !usingFallbackModel) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error)
+      if (errorMessage.includes('prompt is too long') && !usingFallbackModel) {
         activity.distillation.warn(
-          "Prompt too long for Opus, falling back to Sonnet (1M context)",
+          'Prompt too long for Opus, falling back to Sonnet (1M context)',
         )
-        log.info("falling back to workhorse model due to prompt size", {
+        log.info('falling back to workhorse model due to prompt size', {
           error: errorMessage,
         })
-        model = Provider.getModelForTier("workhorse")
+        model = Provider.getModelForTier('workhorse')
         usingFallbackModel = true
         // Retry this turn with the new model
         turn--
@@ -358,7 +359,7 @@ export async function runCompaction(
     result.usage.outputTokens += loopResult.usage.outputTokens
 
     // Check if agent called finish_distillation (inner loop ended via isDone)
-    if (loopResult.stopReason === "done") {
+    if (loopResult.stopReason === 'done') {
       break
     }
 
@@ -367,7 +368,7 @@ export async function runCompaction(
       loopResult.turnsUsed === 1 &&
       loopResult.messages.length === initialMessages.length + 1
     ) {
-      log.warn("distillation agent made no tool calls", {
+      log.warn('distillation agent made no tool calls', {
         text: loopResult.finalText?.slice(0, 200),
       })
       break // Don't keep looping if agent is confused
@@ -377,7 +378,7 @@ export async function runCompaction(
   // Get final effective view size
   result.tokensAfter = await getEffectiveViewTokens(storage.temporal)
 
-  log.info("distillation complete", {
+  log.info('distillation complete', {
     distillationsCreated: result.distillationsCreated,
     tokensBefore: result.tokensBefore,
     tokensAfter: result.tokensAfter,
@@ -395,11 +396,11 @@ export async function runCompactionWorker(
   config: CompactionConfig,
 ): Promise<CompactionResult> {
   // Create worker record
-  const workerId = Identifier.ascending("worker")
+  const workerId = Identifier.ascending('worker')
   await storage.workers.create({
     id: workerId,
-    type: "temporal-compact",
-    status: "running",
+    type: 'temporal-compact',
+    status: 'running',
     startedAt: new Date().toISOString(),
     completedAt: null,
     error: null,

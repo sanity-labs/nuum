@@ -5,8 +5,8 @@
  * allowing tests to verify ULID bookkeeping and compression logic.
  */
 
-import type { TemporalMessage, TemporalSummary } from "../storage/schema"
-import { COMPRESSION_TARGETS } from "./compaction"
+import type {TemporalMessage, TemporalSummary} from '../storage/schema'
+import {COMPRESSION_TARGETS} from './compaction'
 
 export interface MockSummaryOutput {
   narrative: string
@@ -48,7 +48,7 @@ export function createMockLLM(config: MockLLMConfig = {}) {
       }
 
       if (messages.length === 0) {
-        throw new Error("Cannot summarize empty messages")
+        throw new Error('Cannot summarize empty messages')
       }
 
       const startId = messages[0].id
@@ -65,7 +65,7 @@ export function createMockLLM(config: MockLLMConfig = {}) {
       // Generate tags from message types
       const tags = extractTags(messages)
 
-      return { narrative, keyObservations, tags }
+      return {narrative, keyObservations, tags}
     },
 
     /**
@@ -81,7 +81,7 @@ export function createMockLLM(config: MockLLMConfig = {}) {
       }
 
       if (summaries.length === 0) {
-        throw new Error("Cannot summarize empty summaries")
+        throw new Error('Cannot summarize empty summaries')
       }
 
       const startId = summaries[0].startId
@@ -98,7 +98,7 @@ export function createMockLLM(config: MockLLMConfig = {}) {
       // Combine tags from input summaries
       const tags = combineSummaryTags(summaries)
 
-      return { narrative, keyObservations, tags }
+      return {narrative, keyObservations, tags}
     },
 
     /**
@@ -147,11 +147,11 @@ function extractObservations(messages: TemporalMessage[]): string[] {
 
   // Look for specific patterns that would be "key observations"
   for (const msg of messages) {
-    if (msg.type === "user" && msg.content.length > 50) {
+    if (msg.type === 'user' && msg.content.length > 50) {
       // Long user messages might contain important context
       observations.push(`User input at ${msg.id}`)
     }
-    if (msg.type === "tool_result") {
+    if (msg.type === 'tool_result') {
       // Tool results often contain important outcomes
       observations.push(`Tool execution at ${msg.id}`)
     }
@@ -169,11 +169,11 @@ function extractTags(messages: TemporalMessage[]): string[] {
 
   for (const msg of messages) {
     // Tag based on message type
-    if (msg.type === "tool_call" || msg.type === "tool_result") {
-      tags.add("tools")
+    if (msg.type === 'tool_call' || msg.type === 'tool_result') {
+      tags.add('tools')
     }
-    if (msg.type === "user") {
-      tags.add("conversation")
+    if (msg.type === 'user') {
+      tags.add('conversation')
     }
   }
 

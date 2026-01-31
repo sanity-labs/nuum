@@ -6,10 +6,10 @@
  * across all workloads (main agent, compaction, consolidation).
  */
 
-import type { CoreMessage } from "ai"
-import { Config } from "../config"
-import type { Storage } from "../storage"
-import { buildTemporalView, reconstructHistoryAsTurns } from "../temporal"
+import type {CoreMessage} from 'ai'
+import {Config} from '../config'
+import type {Storage} from '../storage'
+import {buildTemporalView, reconstructHistoryAsTurns} from '../temporal'
 
 /**
  * Build the conversation history as proper CoreMessage[] turns.
@@ -18,7 +18,9 @@ import { buildTemporalView, reconstructHistoryAsTurns } from "../temporal"
  * the conversation from temporal storage, respecting the token budget
  * and using summaries for older content.
  */
-export async function buildConversationHistory(storage: Storage): Promise<CoreMessage[]> {
+export async function buildConversationHistory(
+  storage: Storage,
+): Promise<CoreMessage[]> {
   const config = Config.get()
   const temporalBudget = config.tokenBudgets.temporalBudget
 

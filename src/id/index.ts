@@ -6,35 +6,35 @@
  * Modified prefixes for miriad-code entity types.
  */
 
-import { z } from "zod"
-import { randomBytes } from "crypto"
+import {z} from 'zod'
+import {randomBytes} from 'crypto'
 
 export namespace Identifier {
   const prefixes = {
     // Temporal memory
-    message: "msg",
-    summary: "sum",
+    message: 'msg',
+    summary: 'sum',
 
     // Present state
-    task: "tsk",
+    task: 'tsk',
 
     // LTM
-    entry: "ent",
+    entry: 'ent',
 
     // Workers
-    worker: "wrk",
+    worker: 'wrk',
 
     // Background reports
-    report: "rpt",
+    report: 'rpt',
 
     // Background tasks
-    bgtask: "bgt",
-    queue: "que",
-    alarm: "alm",
+    bgtask: 'bgt',
+    queue: 'que',
+    alarm: 'alm',
 
     // Misc
-    session: "ses",
-    toolcall: "tcl",
+    session: 'ses',
+    toolcall: 'tcl',
   } as const
 
   export type Prefix = keyof typeof prefixes
@@ -57,7 +57,11 @@ export namespace Identifier {
     return generateID(prefix, true, given)
   }
 
-  function generateID(prefix: Prefix, descending: boolean, given?: string): string {
+  function generateID(
+    prefix: Prefix,
+    descending: boolean,
+    given?: string,
+  ): string {
     if (!given) {
       return create(prefix, descending)
     }
@@ -69,8 +73,9 @@ export namespace Identifier {
   }
 
   function randomBase62(length: number): string {
-    const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-    let result = ""
+    const chars =
+      '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+    let result = ''
     const bytes = randomBytes(length)
     for (let i = 0; i < length; i++) {
       result += chars[bytes[i] % 62]
@@ -78,7 +83,11 @@ export namespace Identifier {
     return result
   }
 
-  export function create(prefix: Prefix, descending: boolean, timestamp?: number): string {
+  export function create(
+    prefix: Prefix,
+    descending: boolean,
+    timestamp?: number,
+  ): string {
     const currentTimestamp = timestamp ?? Date.now()
 
     if (currentTimestamp !== lastTimestamp) {
@@ -96,14 +105,19 @@ export namespace Identifier {
       timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
     }
 
-    return prefixes[prefix] + "_" + timeBytes.toString("hex") + randomBase62(LENGTH - 12)
+    return (
+      prefixes[prefix] +
+      '_' +
+      timeBytes.toString('hex') +
+      randomBase62(LENGTH - 12)
+    )
   }
 
   /** Extract timestamp from an ascending ID. Does not work with descending IDs. */
   export function timestamp(id: string): number {
-    const prefix = id.split("_")[0]
+    const prefix = id.split('_')[0]
     const hex = id.slice(prefix.length + 1, prefix.length + 13)
-    const encoded = BigInt("0x" + hex)
+    const encoded = BigInt('0x' + hex)
     return Number(encoded / BigInt(0x1000))
   }
 }

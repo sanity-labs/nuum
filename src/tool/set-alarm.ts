@@ -5,9 +5,9 @@
  * it queues a message and triggers a new turn if needed.
  */
 
-import { z } from "zod"
-import type { TasksStorage } from "../storage"
-import { Tool } from "./tool"
+import {z} from 'zod'
+import type {TasksStorage} from '../storage'
+import {Tool} from './tool'
 
 /**
  * Context required for set_alarm tool.
@@ -26,27 +26,29 @@ export interface SetAlarmMetadata {
  * Parse a delay string like "5m", "1h", "30s" into milliseconds.
  */
 function parseDelay(delay: string): number | null {
-  const match = delay.match(/^(\d+(?:\.\d+)?)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hr|hour|hours)$/i)
+  const match = delay.match(
+    /^(\d+(?:\.\d+)?)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hr|hour|hours)$/i,
+  )
   if (!match) return null
 
   const value = parseFloat(match[1])
   const unit = match[2].toLowerCase()
 
   switch (unit) {
-    case "s":
-    case "sec":
-    case "second":
-    case "seconds":
+    case 's':
+    case 'sec':
+    case 'second':
+    case 'seconds':
       return value * 1000
-    case "m":
-    case "min":
-    case "minute":
-    case "minutes":
+    case 'm':
+    case 'min':
+    case 'minute':
+    case 'minutes':
       return value * 60 * 1000
-    case "h":
-    case "hr":
-    case "hour":
-    case "hours":
+    case 'h':
+    case 'hr':
+    case 'hour':
+    case 'hours':
       return value * 60 * 60 * 1000
     default:
       return null
@@ -76,21 +78,22 @@ const parameters = z.object({
 })
 
 export const SetAlarmTool = Tool.define<typeof parameters, SetAlarmMetadata>(
-  "set_alarm",
+  'set_alarm',
   {
     description: DESCRIPTION,
     parameters,
-    async execute({ delay, note }, ctx) {
+    async execute({delay, note}, ctx) {
       // Get tasks storage from context extra
-      const tasksStorage = (ctx as Tool.Context & { extra: SetAlarmToolContext }).extra?.tasks
+      const tasksStorage = (ctx as Tool.Context & {extra: SetAlarmToolContext})
+        .extra?.tasks
 
       if (!tasksStorage) {
         return {
-          output: "Error: Tasks storage not available",
-          title: "Set alarm failed",
+          output: 'Error: Tasks storage not available',
+          title: 'Set alarm failed',
           metadata: {
-            alarmId: "",
-            firesAt: "",
+            alarmId: '',
+            firesAt: '',
             delayMs: 0,
           },
         }
@@ -101,10 +104,10 @@ export const SetAlarmTool = Tool.define<typeof parameters, SetAlarmMetadata>(
       if (delayMs === null) {
         return {
           output: `Invalid delay format: "${delay}". Use formats like "5m", "1h", "30s".`,
-          title: "Invalid delay",
+          title: 'Invalid delay',
           metadata: {
-            alarmId: "",
-            firesAt: "",
+            alarmId: '',
+            firesAt: '',
             delayMs: 0,
           },
         }
@@ -120,11 +123,12 @@ export const SetAlarmTool = Tool.define<typeof parameters, SetAlarmMetadata>(
       })
 
       // Format the delay for display
-      const displayDelay = delayMs >= 3600000
-        ? `${Math.round(delayMs / 3600000 * 10) / 10}h`
-        : delayMs >= 60000
-          ? `${Math.round(delayMs / 60000)}m`
-          : `${Math.round(delayMs / 1000)}s`
+      const displayDelay =
+        delayMs >= 3600000
+          ? `${Math.round((delayMs / 3600000) * 10) / 10}h`
+          : delayMs >= 60000
+            ? `${Math.round(delayMs / 60000)}m`
+            : `${Math.round(delayMs / 1000)}s`
 
       return {
         output: `⏰ Alarm set for ${displayDelay} from now.\nNote: "${note}"\nFires at: ${firesAt}`,

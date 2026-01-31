@@ -5,13 +5,13 @@
  * All modifications use Compare-and-Swap (CAS) for concurrency safety.
  */
 
-import { eq, and, isNull, like } from "drizzle-orm"
-import type { DrizzleDB } from "./db"
+import {eq, and, isNull, like} from 'drizzle-orm'
+import type {DrizzleDB} from './db'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzleDB = any
 
-import { ltmEntries, type LTMEntry, type LTMEntryInsert } from "./schema"
+import {ltmEntries, type LTMEntry, type LTMEntryInsert} from './schema'
 
 export class ConflictError extends Error {
   constructor(
@@ -22,11 +22,11 @@ export class ConflictError extends Error {
     super(
       `CAS conflict: ${slug} expected version ${expectedVersion}, got ${actualVersion}`,
     )
-    this.name = "ConflictError"
+    this.name = 'ConflictError'
   }
 }
 
-export type AgentType = "main" | "ltm-consolidate" | "ltm-reflect" | "research"
+export type AgentType = 'main' | 'ltm-consolidate' | 'ltm-reflect' | 'research'
 
 export interface LTMCreateInput {
   slug: string
@@ -48,8 +48,8 @@ export interface LTMSearchResult {
 export interface LTMFTSSearchResult {
   slug: string
   title: string
-  snippet: string  // Highlighted snippet around match
-  rank: number     // FTS5 relevance rank (lower is better)
+  snippet: string // Highlighted snippet around match
+  rank: number // FTS5 relevance rank (lower is better)
 }
 
 export interface LTMStorage {
@@ -108,8 +108,8 @@ function buildPath(slug: string, parentPath: string | null): string {
 function globToLike(pattern: string): string {
   // Normalize pattern
   let normalized = pattern
-  if (!normalized.startsWith("/")) {
-    normalized = "/" + normalized
+  if (!normalized.startsWith('/')) {
+    normalized = '/' + normalized
   }
 
   // Convert glob to LIKE
@@ -117,7 +117,7 @@ function globToLike(pattern: string): string {
   // * matches single level (no /)
   // For simplicity in Phase 1, treat both as % (any characters)
   // A more sophisticated implementation would use recursive CTE
-  return normalized.replace(/\*\*/g, "%").replace(/\*/g, "%")
+  return normalized.replace(/\*\*/g, '%').replace(/\*/g, '%')
 }
 
 export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
@@ -264,10 +264,14 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
       // Check if oldText exists exactly once
       const occurrences = current[0].body.split(oldText).length - 1
       if (occurrences === 0) {
-        throw new Error(`Text not found in entry "${slug}": "${oldText.slice(0, 50)}${oldText.length > 50 ? '...' : ''}"`)
+        throw new Error(
+          `Text not found in entry "${slug}": "${oldText.slice(0, 50)}${oldText.length > 50 ? '...' : ''}"`,
+        )
       }
       if (occurrences > 1) {
-        throw new Error(`Text appears ${occurrences} times in entry "${slug}". Use ltm_update for ambiguous edits.`)
+        throw new Error(
+          `Text appears ${occurrences} times in entry "${slug}". Use ltm_update for ambiguous edits.`,
+        )
       }
 
       // Perform the replacement
@@ -335,7 +339,12 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
         const parent = await db
           .select()
           .from(ltmEntries)
-          .where(and(eq(ltmEntries.slug, newParentSlug), isNull(ltmEntries.archivedAt)))
+          .where(
+            and(
+              eq(ltmEntries.slug, newParentSlug),
+              isNull(ltmEntries.archivedAt),
+            ),
+          )
           .limit(1)
 
         if (parent.length === 0) {
@@ -343,8 +352,10 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
         }
 
         // Prevent circular reparenting (can't move a parent under its own child)
-        if (parent[0].path.startsWith(current[0].path + "/")) {
-          throw new Error(`Cannot reparent "${slug}" under its own descendant "${newParentSlug}"`)
+        if (parent[0].path.startsWith(current[0].path + '/')) {
+          throw new Error(
+            `Cannot reparent "${slug}" under its own descendant "${newParentSlug}"`,
+          )
         }
 
         newParentPath = parent[0].path
@@ -393,7 +404,7 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
         const updatedDescPath = newPath + descendant.path.slice(oldPath.length)
         await db
           .update(ltmEntries)
-          .set({ path: updatedDescPath, updatedAt: now })
+          .set({path: updatedDescPath, updatedAt: now})
           .where(eq(ltmEntries.slug, descendant.slug))
       }
 
@@ -438,9 +449,9 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
 
       const oldPath = current[0].path
       // New path: replace the slug portion at the end
-      const pathParts = oldPath.split("/")
+      const pathParts = oldPath.split('/')
       pathParts[pathParts.length - 1] = newSlug
-      const newPath = pathParts.join("/")
+      const newPath = pathParts.join('/')
       const now = new Date().toISOString()
 
       // Update the entry
@@ -475,7 +486,7 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
       // First, update direct children's parentSlug
       await db
         .update(ltmEntries)
-        .set({ parentSlug: newSlug, updatedAt: now })
+        .set({parentSlug: newSlug, updatedAt: now})
         .where(eq(ltmEntries.parentSlug, slug))
 
       // Then update all descendants' paths
@@ -488,7 +499,7 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
         const updatedDescPath = newPath + descendant.path.slice(oldPath.length)
         await db
           .update(ltmEntries)
-          .set({ path: updatedDescPath, updatedAt: now })
+          .set({path: updatedDescPath, updatedAt: now})
           .where(eq(ltmEntries.slug, descendant.slug))
       }
 
@@ -540,7 +551,10 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
         .select()
         .from(ltmEntries)
         .where(
-          and(like(ltmEntries.path, likePattern), isNull(ltmEntries.archivedAt)),
+          and(
+            like(ltmEntries.path, likePattern),
+            isNull(ltmEntries.archivedAt),
+          ),
         )
 
       const results = await query.orderBy(ltmEntries.path)
@@ -548,7 +562,7 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
       // Apply maxDepth filter if specified
       if (maxDepth !== undefined) {
         return results.filter((entry: LTMEntry) => {
-          const depth = entry.path.split("/").length - 1 // -1 because path starts with /
+          const depth = entry.path.split('/').length - 1 // -1 because path starts with /
           return depth <= maxDepth
         })
       }
@@ -587,7 +601,7 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
         if (titleMatch || bodyMatch) {
           // Simple scoring: title matches are worth more
           const score = (titleMatch ? 2 : 0) + (bodyMatch ? 1 : 0)
-          matches.push({ entry, score })
+          matches.push({entry, score})
         }
       }
 
@@ -595,7 +609,10 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
       return matches.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     },
 
-    async searchFTS(query: string, limit: number = 20): Promise<LTMFTSSearchResult[]> {
+    async searchFTS(
+      query: string,
+      limit: number = 20,
+    ): Promise<LTMFTSSearchResult[]> {
       // Use FTS5 MATCH with snippet() for highlighted excerpts
       //
       // Split query into words and join with OR for flexible matching
@@ -603,15 +620,17 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
       // FTS5's BM25 ranking will prioritize entries with more matching terms
       const words = query
         .split(/\s+/)
-        .filter(w => w.length > 0)
-        .map(w => `"${w.replace(/"/g, '""')}"`) // Quote each word to escape special chars
+        .filter((w) => w.length > 0)
+        .map((w) => `"${w.replace(/"/g, '""')}"`) // Quote each word to escape special chars
         .join(' OR ')
-      
+
       if (!words) {
         return []
       }
-      
-      const results = await db._rawDb.prepare(`
+
+      const results = (await db._rawDb
+        .prepare(
+          `
         SELECT 
           slug,
           title,
@@ -622,9 +641,16 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
           AND slug IN (SELECT slug FROM ltm_entries WHERE archived_at IS NULL)
         ORDER BY rank
         LIMIT ?
-      `).all(words, limit) as Array<{ slug: string; title: string; snippet: string; rank: number }>
+      `,
+        )
+        .all(words, limit)) as Array<{
+        slug: string
+        title: string
+        snippet: string
+        rank: number
+      }>
 
-      return results.map(r => ({
+      return results.map((r) => ({
         slug: r.slug,
         title: r.title,
         snippet: r.snippet,
