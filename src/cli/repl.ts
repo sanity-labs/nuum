@@ -7,6 +7,7 @@
  * - Commands: /quit, /inspect, /dump, /help
  * - Streaming output with tool progress
  * - Ctrl+C interrupts request, Ctrl+D exits
+ * - Colorized output with markdown rendering
  *
  * Uses Server internally for consistent behavior with stdio mode,
  * including background tasks and alarm polling.
@@ -18,8 +19,10 @@ import * as path from 'path'
 import * as os from 'os'
 import {Server, type ServerOptions} from '../jsonrpc'
 import {runInspect, runDump} from './inspect'
+import {pc, styles} from '../util/colors'
+import {renderMarkdown} from '../util/markdown'
 
-const PROMPT = 'miriad-code> '
+const PROMPT = pc.cyan('nuum') + pc.dim('> ')
 const HISTORY_FILE = path.join(os.homedir(), '.miriad-code-history')
 const MAX_HISTORY = 1000
 
@@ -76,10 +79,14 @@ export class ReplSession {
       if (this.isRunning) {
         // Cancel current request via server
         this.server.interrupt()
-        process.stdout.write('\n^C - Request cancelled\n')
+        process.stdout.write(
+          '\n' + styles.warning('^C - Request cancelled') + '\n',
+        )
       } else {
         // Show hint
-        process.stdout.write('\n(Use /quit or Ctrl+D to exit)\n')
+        process.stdout.write(
+          '\n' + pc.dim('(Use /quit or Ctrl+D to exit)') + '\n',
+        )
         this.rl?.prompt()
       }
     })
@@ -87,7 +94,7 @@ export class ReplSession {
     // Handle Ctrl+D (close)
     this.rl.on('close', () => {
       this.saveHistory()
-      console.log('\nGoodbye!')
+      console.log('\n' + pc.dim('Goodbye!'))
       this.server.shutdown('user exit')
     })
 
@@ -95,7 +102,9 @@ export class ReplSession {
     this.rl.on('line', (line) => {
       this.handleLine(line).catch((error) => {
         console.error(
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
+          styles.error(
+            `Error: ${error instanceof Error ? error.message : String(error)}`,
+          ),
         )
         this.rl?.prompt()
       })
@@ -111,8 +120,8 @@ export class ReplSession {
    */
   private printWelcome(): void {
     console.log()
-    console.log('miriad-code interactive mode')
-    console.log('Type /help for commands, /quit to exit')
+    console.log(pc.bold(pc.cyan('nuum')) + ' ' + pc.dim('interactive mode'))
+    console.log(pc.dim('Type /help for commands, /quit to exit'))
     console.log()
   }
 
@@ -151,7 +160,7 @@ export class ReplSession {
       case 'exit':
       case 'q':
         this.saveHistory()
-        console.log('Goodbye!')
+        console.log(pc.dim('Goodbye!'))
         this.server.shutdown('user exit')
         break
 
@@ -160,7 +169,9 @@ export class ReplSession {
           await runInspect(this.options.dbPath)
         } catch (error) {
           console.error(
-            `Error: ${error instanceof Error ? error.message : String(error)}`,
+            styles.error(
+              `Error: ${error instanceof Error ? error.message : String(error)}`,
+            ),
           )
         }
         this.rl?.prompt()
@@ -171,7 +182,9 @@ export class ReplSession {
           await runDump(this.options.dbPath)
         } catch (error) {
           console.error(
-            `Error: ${error instanceof Error ? error.message : String(error)}`,
+            styles.error(
+              `Error: ${error instanceof Error ? error.message : String(error)}`,
+            ),
           )
         }
         this.rl?.prompt()
@@ -185,8 +198,8 @@ export class ReplSession {
         break
 
       default:
-        console.log(`Unknown command: /${command}`)
-        console.log('Type /help for available commands.')
+        console.log(styles.warning(`Unknown command: /${command}`))
+        console.log(pc.dim('Type /help for available commands.'))
         this.rl?.prompt()
     }
   }
@@ -196,18 +209,31 @@ export class ReplSession {
    */
   private printHelp(): void {
     console.log()
-    console.log('Commands:')
-    console.log('  /help, /h, /?    Show this help')
-    console.log('  /quit, /exit, /q Exit the REPL')
-
-    console.log('  /inspect         Show memory statistics')
-    console.log('  /dump            Show full system prompt')
+    console.log(styles.header('Commands'))
+    console.log(
+      `  ${pc.cyan('/help')}, ${pc.cyan('/h')}, ${pc.cyan('/?')}    ${pc.dim('Show this help')}`,
+    )
+    console.log(
+      `  ${pc.cyan('/quit')}, ${pc.cyan('/exit')}, ${pc.cyan('/q')} ${pc.dim('Exit the REPL')}`,
+    )
+    console.log(
+      `  ${pc.cyan('/inspect')}         ${pc.dim('Show memory statistics')}`,
+    )
+    console.log(
+      `  ${pc.cyan('/dump')}            ${pc.dim('Show full system prompt')}`,
+    )
     console.log()
-    console.log('Shortcuts:')
-    console.log('  Ctrl+C           Cancel current request')
-    console.log('  Ctrl+D           Exit')
-    console.log('  Up/Down arrows   Navigate history')
-    console.log('  Ctrl+R           Reverse history search')
+    console.log(styles.header('Shortcuts'))
+    console.log(
+      `  ${pc.yellow('Ctrl+C')}           ${pc.dim('Cancel current request')}`,
+    )
+    console.log(`  ${pc.yellow('Ctrl+D')}           ${pc.dim('Exit')}`)
+    console.log(
+      `  ${pc.yellow('Up/Down arrows')}   ${pc.dim('Navigate history')}`,
+    )
+    console.log(
+      `  ${pc.yellow('Ctrl+R')}           ${pc.dim('Reverse history search')}`,
+    )
     console.log()
   }
 
@@ -248,12 +274,15 @@ export class ReplSession {
         if (assistantMsg?.content) {
           for (const block of assistantMsg.content) {
             if (block.type === 'text' && block.text) {
-              process.stdout.write(block.text)
+              // Render markdown in assistant text output
+              process.stdout.write(renderMarkdown(block.text))
             } else if (block.type === 'tool_use' && block.name) {
               // Show tool call as progress indicator
               const displayName = this.formatToolName(block.name)
               const args = this.formatToolArgs(block.input)
-              process.stdout.write(`\n[${displayName}${args}...]\n`)
+              process.stdout.write(
+                `\n${pc.dim('[')}${styles.tool(displayName)}${pc.dim(args + '...]')}\n`,
+              )
             }
           }
         }
@@ -271,7 +300,7 @@ export class ReplSession {
             break
           case 'error':
             process.stdout.write(
-              `\n[Error: ${(msg as {message?: string}).message}]\n`,
+              `\n${styles.error('[Error: ' + (msg as {message?: string}).message + ']')}\n`,
             )
             break
           case 'consolidation': {
@@ -280,7 +309,9 @@ export class ReplSession {
               ((msg as {entries_updated?: number}).entries_updated ?? 0) +
               ((msg as {entries_archived?: number}).entries_archived ?? 0)
             if (changes > 0) {
-              process.stdout.write(`\n[LTM updated: ${changes} change(s)]\n`)
+              process.stdout.write(
+                `\n${pc.dim('[LTM updated: ' + changes + ' change(s)]')}\n`,
+              )
             }
             break
           }

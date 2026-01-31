@@ -9,6 +9,8 @@
  * Output goes to stderr, separate from protocol messages on stdout.
  */
 
+import pc from 'picocolors'
+
 // Worker/agent identifiers for attribution
 export type WorkerType =
   | 'main-agent'
@@ -19,29 +21,36 @@ export type WorkerType =
   | 'server'
   | 'mcp'
 
-// Icons for different activity types
+// Icons for different activity types (with colors)
 const ICONS = {
-  tool_call: '🔧',
-  tool_result: '✓',
-  tool_error: '✗',
-  search: '🔍',
-  create: '📝',
-  update: '📝',
-  delete: '🗑️',
-  start: '▶',
-  complete: '✓',
-  skip: '⊘',
-  thinking: '💭',
-  info: 'ℹ',
-  warn: '⚠',
-  error: '✗',
+  tool_call: pc.yellow('🔧'),
+  tool_result: pc.green('✓'),
+  tool_error: pc.red('✗'),
+  search: pc.cyan('🔍'),
+  create: pc.green('📝'),
+  update: pc.yellow('📝'),
+  delete: pc.red('🗑️'),
+  start: pc.blue('▶'),
+  complete: pc.green('✓'),
+  skip: pc.dim('⊘'),
+  thinking: pc.magenta('💭'),
+  info: pc.blue('ℹ'),
+  warn: pc.yellow('⚠'),
+  error: pc.red('✗'),
 } as const
 
 /**
  * Format a worker tag for consistent attribution.
  */
 function formatWorker(worker: WorkerType): string {
-  return `[${worker}]`
+  return pc.dim(`[${worker}]`)
+}
+
+/**
+ * Format a tool/operation name.
+ */
+function formatOp(name: string): string {
+  return pc.magenta(name)
 }
 
 /**
@@ -73,15 +82,16 @@ function formatArgs(args: Record<string, unknown>): string {
   const parts: string[] = []
   for (const [key, value] of Object.entries(args)) {
     if (value === undefined || value === null) continue
+    const keyStr = pc.dim(key + '=')
     if (typeof value === 'string') {
-      parts.push(`${key}=${truncate(value, 60)}`)
+      parts.push(keyStr + pc.cyan(truncate(value, 60)))
     } else if (typeof value === 'number' || typeof value === 'boolean') {
-      parts.push(`${key}=${value}`)
+      parts.push(keyStr + pc.yellow(String(value)))
     } else {
-      parts.push(`${key}=${truncate(JSON.stringify(value), 40)}`)
+      parts.push(keyStr + pc.cyan(truncate(JSON.stringify(value), 40)))
     }
   }
-  return parts.join(', ')
+  return parts.join(pc.dim(', '))
 }
 
 /**
@@ -102,7 +112,9 @@ export class ActivityLog {
    */
   toolCall(name: string, args: Record<string, unknown>): void {
     const argsStr = formatArgs(args)
-    write(`${formatWorker(this.worker)} ${ICONS.tool_call} ${name}(${argsStr})`)
+    write(
+      `${formatWorker(this.worker)} ${ICONS.tool_call} ${formatOp(name)}${pc.dim('(')}${argsStr}${pc.dim(')')}`,
+    )
   }
 
   /**
@@ -110,7 +122,7 @@ export class ActivityLog {
    */
   toolResult(name: string, summary: string): void {
     write(
-      `${formatWorker(this.worker)} ${ICONS.tool_result} ${name}: ${summary}`,
+      `${formatWorker(this.worker)} ${ICONS.tool_result} ${formatOp(name)}${pc.dim(':')} ${summary}`,
     )
   }
 
@@ -119,7 +131,7 @@ export class ActivityLog {
    */
   toolError(name: string, error: string): void {
     write(
-      `${formatWorker(this.worker)} ${ICONS.tool_error} ${name}: ${truncate(error, 100)}`,
+      `${formatWorker(this.worker)} ${ICONS.tool_error} ${formatOp(name)}${pc.dim(':')} ${pc.red(truncate(error, 100))}`,
     )
   }
 
@@ -128,7 +140,7 @@ export class ActivityLog {
    */
   fileRead(path: string, lines: number, bytes: number): void {
     write(
-      `${formatWorker(this.worker)} ${ICONS.tool_result} read: ${formatSize(bytes, lines)}`,
+      `${formatWorker(this.worker)} ${ICONS.tool_result} ${formatOp('read')}${pc.dim(':')} ${formatSize(bytes, lines)}`,
     )
   }
 
@@ -140,9 +152,9 @@ export class ActivityLog {
     count: number,
     query?: string,
   ): void {
-    const queryStr = query ? ` "${truncate(query, 30)}"` : ''
+    const queryStr = query ? ` ${pc.cyan('"' + truncate(query, 30) + '"')}` : ''
     write(
-      `${formatWorker(this.worker)} ${ICONS.search} ${type}${queryStr} → ${count} results`,
+      `${formatWorker(this.worker)} ${ICONS.search} ${formatOp(type)}${queryStr} ${pc.dim('→')} ${pc.yellow(String(count))} results`,
     )
   }
 
@@ -155,9 +167,9 @@ export class ActivityLog {
     detail?: string,
   ): void {
     const icon = op === 'archive' ? ICONS.delete : ICONS.update
-    const detailStr = detail ? ` - ${detail}` : ''
+    const detailStr = detail ? pc.dim(` - ${detail}`) : ''
     write(
-      `${formatWorker(this.worker)} ${icon} ltm_${op}("${slug}")${detailStr}`,
+      `${formatWorker(this.worker)} ${icon} ${formatOp('ltm_' + op)}${pc.dim('(')}${pc.cyan('"' + slug + '"')}${pc.dim(')')}${detailStr}`,
     )
   }
 
@@ -165,7 +177,7 @@ export class ActivityLog {
    * Log worker starting.
    */
   start(description: string, detail?: Record<string, unknown>): void {
-    const detailStr = detail ? ` (${formatArgs(detail)})` : ''
+    const detailStr = detail ? pc.dim(` (${formatArgs(detail)})`) : ''
     write(
       `${formatWorker(this.worker)} ${ICONS.start} ${description}${detailStr}`,
     )
@@ -182,7 +194,9 @@ export class ActivityLog {
    * Log worker skipping (nothing to do).
    */
   skip(reason: string): void {
-    write(`${formatWorker(this.worker)} ${ICONS.skip} Skipped: ${reason}`)
+    write(
+      `${formatWorker(this.worker)} ${ICONS.skip} ${pc.dim('Skipped:')} ${reason}`,
+    )
   }
 
   /**
@@ -190,7 +204,7 @@ export class ActivityLog {
    */
   thinking(thought: string): void {
     write(
-      `${formatWorker(this.worker)} ${ICONS.thinking} ${truncate(thought, 150)}`,
+      `${formatWorker(this.worker)} ${ICONS.thinking} ${pc.dim(truncate(thought, 150))}`,
     )
   }
 
@@ -205,14 +219,14 @@ export class ActivityLog {
    * Log a warning.
    */
   warn(message: string): void {
-    write(`${formatWorker(this.worker)} ${ICONS.warn} ${message}`)
+    write(`${formatWorker(this.worker)} ${ICONS.warn} ${pc.yellow(message)}`)
   }
 
   /**
    * Log an error.
    */
   error(message: string): void {
-    write(`${formatWorker(this.worker)} ${ICONS.error} ${message}`)
+    write(`${formatWorker(this.worker)} ${ICONS.error} ${pc.red(message)}`)
   }
 
   /**
@@ -220,9 +234,9 @@ export class ActivityLog {
    */
   tokens(before: number, after: number, detail?: string): void {
     const reduction = Math.round((1 - after / before) * 100)
-    const detailStr = detail ? `, ${detail}` : ''
+    const detailStr = detail ? pc.dim(`, ${detail}`) : ''
     write(
-      `${formatWorker(this.worker)} ${ICONS.info} ${before.toLocaleString()} → ${after.toLocaleString()} tokens (${reduction}% reduction${detailStr})`,
+      `${formatWorker(this.worker)} ${ICONS.info} ${pc.yellow(before.toLocaleString())} ${pc.dim('→')} ${pc.green(after.toLocaleString())} tokens ${pc.dim('(')}${pc.green(reduction + '%')} reduction${detailStr}${pc.dim(')')}`,
     )
   }
 }
