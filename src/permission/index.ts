@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/permission/next.ts
  * License: MIT
  *
- * Simplified for miriad-code: removed Instance/Storage/Config dependencies,
+ * Simplified for nuum: removed Instance/Storage/Config dependencies,
  * standalone permission evaluation with in-memory ruleset.
  */
 

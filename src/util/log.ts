@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/util/log.ts
  * License: MIT
  *
- * Simplified for miriad-code: removed Global.Path dependency, stderr-only output.
+ * Simplified for nuum: removed Global.Path dependency, stderr-only output.
  * Enhanced with colors for better readability.
  */
 

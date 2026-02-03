@@ -1,5 +1,5 @@
 /**
- * Batch mode implementation for miriad-code
+ * Batch mode implementation for nuum
  *
  * Runs the agent with a single prompt and outputs the response.
  * With --verbose, shows memory state and execution trace on stderr.

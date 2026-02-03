@@ -1,5 +1,5 @@
 /**
- * Inspect commands for miriad-code
+ * Inspect commands for nuum
  *
  * --inspect: Shows LTM tree structure + memory stats
  * --dump: Shows the system prompt + conversation turns as they would appear to the agent

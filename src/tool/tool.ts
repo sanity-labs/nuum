@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/tool/tool.ts
  * License: MIT
  *
- * Simplified for miriad-code: removed Truncate/agent dependencies,
+ * Simplified for nuum: removed Truncate/agent dependencies,
  * standalone tool definition pattern.
  */
 

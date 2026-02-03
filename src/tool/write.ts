@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/tool/write.ts
  * License: MIT
  *
- * Simplified for miriad-code Phase 1:
+ * Simplified for nuum Phase 1:
  * - Removed LSP diagnostics integration (deferred to Phase 2)
  * - Removed Bus event publishing (deferred to Phase 2)
  * - Removed FileTime tracking (deferred to Phase 2)

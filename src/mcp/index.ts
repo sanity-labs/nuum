@@ -83,10 +83,10 @@ export namespace Mcp {
   const CONFIG_FILE_PATH = path.join(
     os.homedir(),
     '.config',
-    'miriad',
-    'code.json',
+    'nuum',
+    'mcp.json',
   )
-  const CONFIG_ENV_VAR = 'MIRIAD_MCP_CONFIG'
+  const CONFIG_ENV_VAR = 'NUUM_MCP_CONFIG'
 
   /**
    * Load MCP config from env var or file
@@ -196,7 +196,7 @@ export namespace Mcp {
       }
 
       const client = new Client(
-        {name: 'miriad-code', version: '0.1.0'},
+        {name: 'nuum', version: '0.1.0'},
         {capabilities: {}},
       )
 

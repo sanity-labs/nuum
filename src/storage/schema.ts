@@ -1,5 +1,5 @@
 /**
- * Drizzle schema definitions for miriad-code storage
+ * Drizzle schema definitions for nuum storage
  *
  * Memory pattern inspired by Letta (https://github.com/letta-ai/letta)
  * Schema follows arch-long-term-agent spec exactly.

@@ -233,7 +233,7 @@ async function verify() {
   // 10. WAL mode - test with a real file
   console.log('\n--- Database ---')
 
-  const testDbPath = path.join('/tmp', `miriad-verify-${Date.now()}.db`)
+  const testDbPath = path.join('/tmp', `nuum-verify-${Date.now()}.db`)
   try {
     const fileStorage = createStorage(testDbPath)
     const rawDb = getRawConnection(fileStorage._db)

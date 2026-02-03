@@ -1,5 +1,5 @@
 /**
- * Storage module for miriad-code
+ * Storage module for nuum
  *
  * All database access goes through this interface.
  * No raw SQL leaks out of this module.

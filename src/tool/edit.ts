@@ -8,7 +8,7 @@
  * - https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/utils/editCorrector.ts
  * - https://github.com/cline/cline/blob/main/evals/diff-edits/diff-apply/diff-06-26-25.ts
  *
- * Simplified for miriad-code Phase 1:
+ * Simplified for nuum Phase 1:
  * - Removed LSP diagnostics integration (deferred to Phase 2)
  * - Removed Bus event publishing (deferred to Phase 2)
  * - Removed FileTime tracking (deferred to Phase 2)
