@@ -13,6 +13,9 @@ import {runInspect, runDump, runCompact} from './inspect'
 import {runServer} from '../jsonrpc'
 import {runRepl} from './repl'
 import {VERSION_STRING} from '../version'
+import {Log} from '../util/log'
+import {printError, printSimpleError} from './error'
+import {renderRaw} from './renderer'
 
 interface CliOptions {
   prompt: string | undefined
@@ -126,13 +129,18 @@ Examples:
 async function main(): Promise<void> {
   const options = parseCliArgs()
 
+  // Enable verbose logging only when --verbose is passed
+  if (options.verbose) {
+    Log.setLevel('DEBUG')
+  }
+
   if (options.help) {
     printHelp()
     process.exit(0)
   }
 
   if (options.version) {
-    console.log(VERSION_STRING)
+    renderRaw(VERSION_STRING + '\n')
     process.exit(0)
   }
 
@@ -142,11 +150,7 @@ async function main(): Promise<void> {
       await runRepl({dbPath: options.db})
       // runRepl keeps running until user quits
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
     return
@@ -158,11 +162,7 @@ async function main(): Promise<void> {
       await runServer({dbPath: options.db})
       // runServer keeps running until stdin closes
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
     return
@@ -174,11 +174,7 @@ async function main(): Promise<void> {
       await runInspect(options.db)
       process.exit(0)
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
   }
@@ -189,11 +185,7 @@ async function main(): Promise<void> {
       await runDump(options.db)
       process.exit(0)
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
   }
@@ -204,21 +196,17 @@ async function main(): Promise<void> {
       await runCompact(options.db)
       process.exit(0)
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
   }
 
   // Regular prompt mode requires --prompt
   if (!options.prompt) {
-    console.error(
-      'Error: --prompt (-p) is required (or use --repl/--stdio/--inspect/--dump)',
+    printSimpleError(
+      '--prompt (-p) is required (or use --repl/--stdio/--inspect/--dump)',
+      'Run with --help for usage information',
     )
-    console.error('Run with --help for usage information')
     process.exit(1)
   }
 
@@ -230,14 +218,7 @@ async function main(): Promise<void> {
       format: options.format,
     })
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(`Error: ${error.message}`)
-      if (options.verbose && error.stack) {
-        console.error(error.stack)
-      }
-    } else {
-      console.error('Unknown error:', error)
-    }
+    printError(error, {verbose: options.verbose})
     process.exit(1)
   }
 }

@@ -109,9 +109,7 @@ export async function calculateCompactionTarget(
  *
  * Returns messages after the last summary that haven't been compacted yet.
  */
-export async function getMessagesToCompact(
-  temporal: TemporalStorage,
-): Promise<{
+export async function getMessagesToCompact(temporal: TemporalStorage): Promise<{
   messages: Awaited<ReturnType<TemporalStorage['getMessages']>>
   fromId: string | null
 }> {

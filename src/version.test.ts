@@ -17,7 +17,7 @@ describe('version', () => {
 
   test('VERSION_STRING has correct format', () => {
     expect(VERSION_STRING).toMatch(
-      /^miriad-code v\d+\.\d+\.\d+ \([a-f0-9]{7}|unknown\)$/,
+      /^nuum v\d+\.\d+\.\d+ \(([a-f0-9]{7}|unknown)\)$/,
     )
   })
 

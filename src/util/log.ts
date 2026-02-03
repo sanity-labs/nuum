@@ -4,9 +4,11 @@
  * License: MIT
  *
  * Simplified for miriad-code: removed Global.Path dependency, stderr-only output.
+ * Enhanced with colors for better readability.
  */
 
 import {z} from 'zod'
+import pc from 'picocolors'
 
 export namespace Log {
   export const Level = z.enum(['DEBUG', 'INFO', 'WARN', 'ERROR'])
@@ -19,7 +21,16 @@ export namespace Log {
     ERROR: 3,
   }
 
-  let level: Level = 'INFO'
+  // Color functions for each level
+  const levelColors: Record<Level, (s: string) => string> = {
+    DEBUG: pc.gray,
+    INFO: pc.blue,
+    WARN: (s) => pc.bold(pc.yellow(s)),
+    ERROR: (s) => pc.bold(pc.red(s)),
+  }
+
+  // Default to WARN so INFO logs don't appear unless verbose mode is enabled
+  let level: Level = 'WARN'
 
   function shouldLog(input: Level): boolean {
     return levelPriority[input] >= levelPriority[level]
@@ -86,24 +97,34 @@ export namespace Log {
       }
     }
 
-    function build(message: unknown, extra?: Record<string, unknown>) {
+    function build(
+      logLevel: Level,
+      message: unknown,
+      extra?: Record<string, unknown>,
+    ) {
       const prefix = Object.entries({
         ...tags,
         ...extra,
       })
         .filter(([_, value]) => value !== undefined && value !== null)
         .map(([key, value]) => {
-          const prefix = `${key}=`
-          if (value instanceof Error) return prefix + formatError(value)
-          if (typeof value === 'object') return prefix + JSON.stringify(value)
-          return prefix + value
+          const keyStr = pc.dim(key + '=')
+          if (value instanceof Error) return keyStr + pc.red(formatError(value))
+          if (typeof value === 'object')
+            return keyStr + pc.cyan(JSON.stringify(value))
+          return keyStr + value
         })
         .join(' ')
       const next = new Date()
       const diff = next.getTime() - last
       last = next.getTime()
+
+      const timestamp = pc.dim(next.toISOString().split('.')[0])
+      const duration = pc.dim('+' + diff + 'ms')
+      const levelStr = levelColors[logLevel](logLevel.padEnd(5))
+
       return (
-        [next.toISOString().split('.')[0], '+' + diff + 'ms', prefix, message]
+        [levelStr, timestamp, duration, prefix, message]
           .filter(Boolean)
           .join(' ') + '\n'
       )
@@ -112,22 +133,22 @@ export namespace Log {
     const result: Logger = {
       debug(message?: string, extra?: Record<string, unknown>) {
         if (shouldLog('DEBUG')) {
-          write('DEBUG ' + build(message, extra))
+          write(build('DEBUG', message, extra))
         }
       },
       info(message?: string, extra?: Record<string, unknown>) {
         if (shouldLog('INFO')) {
-          write('INFO  ' + build(message, extra))
+          write(build('INFO', message, extra))
         }
       },
       error(message?: string, extra?: Record<string, unknown>) {
         if (shouldLog('ERROR')) {
-          write('ERROR ' + build(message, extra))
+          write(build('ERROR', message, extra))
         }
       },
       warn(message?: string, extra?: Record<string, unknown>) {
         if (shouldLog('WARN')) {
-          write('WARN  ' + build(message, extra))
+          write(build('WARN', message, extra))
         }
       },
       tag(key: string, value: string) {
