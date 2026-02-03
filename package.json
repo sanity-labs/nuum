@@ -1,6 +1,6 @@
 {
   "name": "@sanity-labs/nuum",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AI coding agent with continuous memory - infinite context across sessions",
   "type": "module",
   "bin": {
