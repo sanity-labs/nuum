@@ -9,15 +9,15 @@
  * --compact requires API key (runs the compaction agent).
  */
 
-import { createStorage, initializeDefaultEntries, type Storage } from "../storage"
-import { buildTemporalView, reconstructHistoryAsTurns } from "../temporal"
-import { runMemoryCuration, getEffectiveViewTokens } from "../memory"
-import { buildAgentContext } from "../context"
-import { Config } from "../config"
-import type { CoreMessage } from "ai"
+import {createStorage, initializeDefaultEntries, type Storage} from '../storage'
+import {buildTemporalView, reconstructHistoryAsTurns} from '../temporal'
+import {runMemoryCuration, getEffectiveViewTokens} from '../memory'
+import {buildAgentContext} from '../context'
+import {Config} from '../config'
+import type {CoreMessage} from 'ai'
 
-const SEPARATOR = "═".repeat(70)
-const SUBSEPARATOR = "─".repeat(70)
+const SEPARATOR = '═'.repeat(70)
+const SUBSEPARATOR = '─'.repeat(70)
 
 /**
  * Estimate token count from text (rough approximation).
@@ -49,7 +49,7 @@ interface LTMTreeNode {
  * Build a tree structure from LTM entries.
  */
 async function buildLTMTree(storage: Storage): Promise<LTMTreeNode[]> {
-  const entries = await storage.ltm.glob("/**")
+  const entries = await storage.ltm.glob('/**')
   const nodeMap = new Map<string, LTMTreeNode>()
 
   // First pass: create all nodes
@@ -95,12 +95,12 @@ async function buildLTMTree(storage: Storage): Promise<LTMTreeNode[]> {
  */
 function renderLTMTree(nodes: LTMTreeNode[], indent: number = 0): string {
   const lines: string[] = []
-  const prefix = "  ".repeat(indent)
+  const prefix = '  '.repeat(indent)
 
   for (const node of nodes) {
-    const archived = node.archived ? " [archived]" : ""
-    const title = node.title ? ` "${node.title}"` : ""
-    const tokens = node.tokens > 0 ? ` (${fmt(node.tokens)} tokens)` : ""
+    const archived = node.archived ? ' [archived]' : ''
+    const title = node.title ? ` "${node.title}"` : ''
+    const tokens = node.tokens > 0 ? ` (${fmt(node.tokens)} tokens)` : ''
     lines.push(`${prefix}/${node.slug}${title}${tokens}${archived}`)
 
     if (node.children.length > 0) {
@@ -108,7 +108,7 @@ function renderLTMTree(nodes: LTMTreeNode[], indent: number = 0): string {
     }
   }
 
-  return lines.join("\n")
+  return lines.join('\n')
 }
 
 interface SummaryOrderStats {
@@ -167,14 +167,17 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   })
 
   // Calculate message tokens
-  const totalMessageTokens = messages.reduce((sum, m) => sum + m.tokenEstimate, 0)
+  const totalMessageTokens = messages.reduce(
+    (sum, m) => sum + m.tokenEstimate,
+    0,
+  )
 
   // Calculate summary stats by order
   const summariesByOrder: SummaryOrderStats[] = []
-  const orderMap = new Map<number, { count: number; tokens: number }>()
+  const orderMap = new Map<number, {count: number; tokens: number}>()
 
   for (const summary of summaries) {
-    const existing = orderMap.get(summary.orderNum) ?? { count: 0, tokens: 0 }
+    const existing = orderMap.get(summary.orderNum) ?? {count: 0, tokens: 0}
     existing.count++
     existing.tokens += summary.tokenEstimate
     orderMap.set(summary.orderNum, existing)
@@ -189,21 +192,35 @@ async function getMemoryStats(storage: Storage): Promise<MemoryStats> {
   }
   summariesByOrder.sort((a, b) => a.order - b.order)
 
-  const totalSummaryTokens = summaries.reduce((sum, s) => sum + s.tokenEstimate, 0)
+  const totalSummaryTokens = summaries.reduce(
+    (sum, s) => sum + s.tokenEstimate,
+    0,
+  )
 
   // Get present state
   const present = await storage.present.get()
-  const tasksPending = present.tasks.filter(t => t.status === "pending").length
-  const tasksInProgress = present.tasks.filter(t => t.status === "in_progress").length
-  const tasksCompleted = present.tasks.filter(t => t.status === "completed").length
-  const tasksBlocked = present.tasks.filter(t => t.status === "blocked").length
+  const tasksPending = present.tasks.filter(
+    (t) => t.status === 'pending',
+  ).length
+  const tasksInProgress = present.tasks.filter(
+    (t) => t.status === 'in_progress',
+  ).length
+  const tasksCompleted = present.tasks.filter(
+    (t) => t.status === 'completed',
+  ).length
+  const tasksBlocked = present.tasks.filter(
+    (t) => t.status === 'blocked',
+  ).length
 
   // Get LTM stats
-  const ltmEntries = await storage.ltm.glob("/**")
-  const activeEntries = ltmEntries.filter(e => !e.archivedAt)
-  const identity = await storage.ltm.read("identity")
-  const behavior = await storage.ltm.read("behavior")
-  const ltmTotalTokens = ltmEntries.reduce((sum, e) => sum + estimateTokens(e.body), 0)
+  const ltmEntries = await storage.ltm.glob('/**')
+  const activeEntries = ltmEntries.filter((e) => !e.archivedAt)
+  const identity = await storage.ltm.read('identity')
+  const behavior = await storage.ltm.read('behavior')
+  const ltmTotalTokens = ltmEntries.reduce(
+    (sum, e) => sum + estimateTokens(e.body),
+    0,
+  )
 
   return {
     totalMessages: messages.length,
@@ -245,31 +262,37 @@ export async function runInspect(dbPath: string): Promise<void> {
 
   console.log()
   console.log(SEPARATOR)
-  console.log("LONG-TERM MEMORY TREE")
+  console.log('LONG-TERM MEMORY TREE')
   console.log(SEPARATOR)
   console.log()
 
   if (ltmTree.length > 0) {
     console.log(renderLTMTree(ltmTree))
   } else {
-    console.log("(no entries)")
+    console.log('(no entries)')
   }
 
   console.log()
-  console.log(`Total: ${stats.ltmActiveEntries} active, ${stats.ltmTotalEntries - stats.ltmActiveEntries} archived (${fmt(stats.ltmTotalTokens)} tokens)`)
+  console.log(
+    `Total: ${stats.ltmActiveEntries} active, ${stats.ltmTotalEntries - stats.ltmActiveEntries} archived (${fmt(stats.ltmTotalTokens)} tokens)`,
+  )
 
   console.log()
   console.log(SEPARATOR)
-  console.log("TEMPORAL MEMORY")
+  console.log('TEMPORAL MEMORY')
   console.log(SEPARATOR)
   console.log()
 
-  console.log(`Messages: ${fmt(stats.totalMessages)} (${fmt(stats.totalMessageTokens)} tokens)`)
+  console.log(
+    `Messages: ${fmt(stats.totalMessages)} (${fmt(stats.totalMessageTokens)} tokens)`,
+  )
 
   if (stats.summariesByOrder.length > 0) {
     console.log(`Summaries:`)
     for (const orderStats of stats.summariesByOrder) {
-      console.log(`  Order-${orderStats.order}: ${orderStats.count} (${fmt(orderStats.totalTokens)} tokens)`)
+      console.log(
+        `  Order-${orderStats.order}: ${orderStats.count} (${fmt(orderStats.totalTokens)} tokens)`,
+      )
     }
   } else {
     console.log(`Summaries: none`)
@@ -277,28 +300,40 @@ export async function runInspect(dbPath: string): Promise<void> {
 
   console.log()
   const needsCompaction = stats.viewTotalTokens > stats.compactionThreshold
-  const compactionStatus = needsCompaction ? " (compaction needed)" : ""
+  const compactionStatus = needsCompaction ? ' (compaction needed)' : ''
   console.log(`Effective view (what goes to agent):`)
-  console.log(`  Summaries: ${stats.viewSummaryCount} (${fmt(stats.viewSummaryTokens)} tokens)`)
-  console.log(`  Messages: ${stats.viewMessageCount} (${fmt(stats.viewMessageTokens)} tokens)`)
-  console.log(`  Total: ${fmt(stats.viewTotalTokens)} / ${fmt(stats.compactionThreshold)} threshold${compactionStatus}`)
+  console.log(
+    `  Summaries: ${stats.viewSummaryCount} (${fmt(stats.viewSummaryTokens)} tokens)`,
+  )
+  console.log(
+    `  Messages: ${stats.viewMessageCount} (${fmt(stats.viewMessageTokens)} tokens)`,
+  )
+  console.log(
+    `  Total: ${fmt(stats.viewTotalTokens)} / ${fmt(stats.compactionThreshold)} threshold${compactionStatus}`,
+  )
   console.log(`  Target: ${fmt(stats.compactionTarget)} tokens`)
 
   console.log()
   console.log(SEPARATOR)
-  console.log("PRESENT STATE")
+  console.log('PRESENT STATE')
   console.log(SEPARATOR)
   console.log()
 
-  console.log(`Mission: ${stats.mission ?? "(none)"}`)
-  console.log(`Status: ${stats.status ?? "(none)"}`)
+  console.log(`Mission: ${stats.mission ?? '(none)'}`)
+  console.log(`Status: ${stats.status ?? '(none)'}`)
 
-  const totalTasks = stats.tasksPending + stats.tasksInProgress + stats.tasksCompleted + stats.tasksBlocked
+  const totalTasks =
+    stats.tasksPending +
+    stats.tasksInProgress +
+    stats.tasksCompleted +
+    stats.tasksBlocked
   if (totalTasks > 0) {
     console.log(`Tasks: ${totalTasks} total`)
     if (stats.tasksPending > 0) console.log(`  Pending: ${stats.tasksPending}`)
-    if (stats.tasksInProgress > 0) console.log(`  In progress: ${stats.tasksInProgress}`)
-    if (stats.tasksCompleted > 0) console.log(`  Completed: ${stats.tasksCompleted}`)
+    if (stats.tasksInProgress > 0)
+      console.log(`  In progress: ${stats.tasksInProgress}`)
+    if (stats.tasksCompleted > 0)
+      console.log(`  Completed: ${stats.tasksCompleted}`)
     if (stats.tasksBlocked > 0) console.log(`  Blocked: ${stats.tasksBlocked}`)
   } else {
     console.log(`Tasks: none`)
@@ -312,25 +347,29 @@ export async function runInspect(dbPath: string): Promise<void> {
  * Shows exactly what the agent would see.
  */
 function renderTurnContent(turn: CoreMessage): string {
-  if (typeof turn.content === "string") {
+  if (typeof turn.content === 'string') {
     return turn.content
   } else if (Array.isArray(turn.content)) {
     const parts: string[] = []
     for (const part of turn.content) {
-      if (part.type === "text") {
+      if (part.type === 'text') {
         parts.push(part.text)
-      } else if (part.type === "tool-call") {
-        parts.push(`[tool_call: ${part.toolName}(${JSON.stringify(part.args)})]`)
-      } else if (part.type === "tool-result") {
-        const result = typeof part.result === "string"
-          ? part.result.slice(0, 500) + (part.result.length > 500 ? "..." : "")
-          : JSON.stringify(part.result).slice(0, 500)
+      } else if (part.type === 'tool-call') {
+        parts.push(
+          `[tool_call: ${part.toolName}(${JSON.stringify(part.args)})]`,
+        )
+      } else if (part.type === 'tool-result') {
+        const result =
+          typeof part.result === 'string'
+            ? part.result.slice(0, 500) +
+              (part.result.length > 500 ? '...' : '')
+            : JSON.stringify(part.result).slice(0, 500)
         parts.push(`[tool_result: ${part.toolName}] ${result}`)
       }
     }
-    return parts.join("\n")
+    return parts.join('\n')
   }
-  return ""
+  return ''
 }
 
 /**
@@ -350,17 +389,21 @@ export async function runDump(dbPath: string): Promise<void> {
 
   // Calculate conversation tokens (rough estimate)
   const conversationTokens = conversationTurns.reduce((sum, turn) => {
-    if (typeof turn.content === "string") {
+    if (typeof turn.content === 'string') {
       return sum + estimateTokens(turn.content)
     } else if (Array.isArray(turn.content)) {
       let tokens = 0
       for (const part of turn.content) {
-        if (part.type === "text") {
+        if (part.type === 'text') {
           tokens += estimateTokens(part.text)
-        } else if (part.type === "tool-call") {
+        } else if (part.type === 'tool-call') {
           tokens += estimateTokens(JSON.stringify(part.args)) + 20
-        } else if (part.type === "tool-result") {
-          tokens += estimateTokens(typeof part.result === "string" ? part.result : JSON.stringify(part.result))
+        } else if (part.type === 'tool-result') {
+          tokens += estimateTokens(
+            typeof part.result === 'string'
+              ? part.result
+              : JSON.stringify(part.result),
+          )
         }
       }
       return sum + tokens
@@ -373,7 +416,9 @@ export async function runDump(dbPath: string): Promise<void> {
   // Header with stats
   console.log()
   console.log(`# Agent Prompt Dump`)
-  console.log(`# System: ~${fmt(systemTokens)} tokens | Conversation: ${conversationTurns.length} turns, ~${fmt(conversationTokens)} tokens | Total: ~${fmt(totalTokens)} tokens`)
+  console.log(
+    `# System: ~${fmt(systemTokens)} tokens | Conversation: ${conversationTurns.length} turns, ~${fmt(conversationTokens)} tokens | Total: ~${fmt(totalTokens)} tokens`,
+  )
   console.log()
 
   // System prompt - exactly as sent
@@ -423,7 +468,7 @@ export async function runCompact(dbPath: string): Promise<void> {
   }
   console.log()
 
-  const result = await runMemoryCuration(storage, { force: true })
+  const result = await runMemoryCuration(storage, {force: true})
 
   if (!result.ran) {
     console.log(`Curation did not run (already in progress?)`)
@@ -436,7 +481,9 @@ export async function runCompact(dbPath: string): Promise<void> {
     const changes = c.entriesCreated + c.entriesUpdated + c.entriesArchived
     console.log(`LTM Consolidation:`)
     if (changes > 0) {
-      console.log(`  ${c.entriesCreated} created, ${c.entriesUpdated} updated, ${c.entriesArchived} archived`)
+      console.log(
+        `  ${c.entriesCreated} created, ${c.entriesUpdated} updated, ${c.entriesArchived} archived`,
+      )
     } else {
       console.log(`  No changes needed`)
     }
@@ -450,6 +497,8 @@ export async function runCompact(dbPath: string): Promise<void> {
     console.log(`  Distillations created: ${d.distillationsCreated}`)
     console.log(`  Tokens: ${fmt(d.tokensBefore)} → ${fmt(d.tokensAfter)}`)
     console.log(`  Turns used: ${d.turnsUsed}`)
-    console.log(`  LLM usage: ${fmt(d.usage.inputTokens)} input, ${fmt(d.usage.outputTokens)} output`)
+    console.log(
+      `  LLM usage: ${fmt(d.usage.inputTokens)} input, ${fmt(d.usage.outputTokens)} output`,
+    )
   }
 }

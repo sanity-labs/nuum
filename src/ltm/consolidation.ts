@@ -10,15 +10,15 @@
  * 3. CURATE - Organize, cross-link, prune, and improve the knowledge base
  */
 
-import type { Storage } from "../storage"
-import type { TemporalMessage, LTMEntry } from "../storage/schema"
-import { Identifier } from "../id"
-import { Log } from "../util/log"
-import { runSubAgent } from "../sub-agent"
-import { buildConsolidationTools, type ConsolidationToolResult } from "./tools"
-import { renderCompactTree } from "../tool"
+import type {Storage} from '../storage'
+import type {TemporalMessage, LTMEntry} from '../storage/schema'
+import {Identifier} from '../id'
+import {Log} from '../util/log'
+import {runSubAgent} from '../sub-agent'
+import {buildConsolidationTools, type ConsolidationToolResult} from './tools'
+import {renderCompactTree} from '../tool'
 
-const log = Log.create({ service: "consolidation-agent" })
+const log = Log.create({service: 'consolidation-agent'})
 
 const MAX_CONSOLIDATION_TURNS = 20
 
@@ -62,7 +62,7 @@ export function isConversationNoteworthy(messages: TemporalMessage[]): boolean {
 
   for (const msg of messages) {
     // Tool calls indicate real work was done
-    if (msg.type === "tool_call" || msg.type === "tool_result") {
+    if (msg.type === 'tool_call' || msg.type === 'tool_result') {
       hasToolUsage = true
     }
 
@@ -85,7 +85,7 @@ async function buildLTMReviewPrompt(
   recentlyUpdatedEntries: LTMEntry[],
 ): Promise<string> {
   // Get the full LTM tree (3 levels deep)
-  const allEntries = await storage.ltm.glob("/**")
+  const allEntries = await storage.ltm.glob('/**')
   const treeView = renderCompactTree(allEntries, 3)
 
   let content = `## Knowledge Base Curation Task
@@ -111,7 +111,7 @@ Is it well-organized? Are entries cross-linked? Is anything stale or redundant?
 
 ### Current Knowledge Base
 
-${treeView || "(empty - time to start building!)"}
+${treeView || '(empty - time to start building!)'}
 `
 
   // Add recently updated entries if any
@@ -119,7 +119,7 @@ ${treeView || "(empty - time to start building!)"}
     content += `
 ### Recently Modified Entries
 
-${recentlyUpdatedEntries.map(e => `- **${e.slug}**: ${e.title}`).join("\n")}
+${recentlyUpdatedEntries.map((e) => `- **${e.slug}**: ${e.title}`).join('\n')}
 `
   }
 
@@ -229,48 +229,51 @@ export async function runConsolidation(
     entriesCreated: 0,
     entriesUpdated: 0,
     entriesArchived: 0,
-    summary: "",
+    summary: '',
     details: [],
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: {inputTokens: 0, outputTokens: 0},
   }
 
   // Check if conversation is noteworthy
   if (!isConversationNoteworthy(messages)) {
-    log.info("skipping consolidation - conversation not noteworthy", {
+    log.info('skipping consolidation - conversation not noteworthy', {
       messageCount: messages.length,
     })
-    result.summary = "Skipped - conversation not noteworthy"
+    result.summary = 'Skipped - conversation not noteworthy'
     return result
   }
 
   result.ran = true
-  log.info("starting consolidation", { messageCount: messages.length })
+  log.info('starting consolidation', {messageCount: messages.length})
 
   // Find recently updated entries (updated in the last hour)
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
-  const allEntries = await storage.ltm.glob("/**")
+  const allEntries = await storage.ltm.glob('/**')
   const recentlyUpdated = allEntries.filter(
-    (e) => e.updatedAt > oneHourAgo && e.slug !== "identity" && e.slug !== "behavior",
+    (e) =>
+      e.updatedAt > oneHourAgo &&
+      e.slug !== 'identity' &&
+      e.slug !== 'behavior',
   )
 
   // Build the task prompt
   const taskPrompt = await buildLTMReviewPrompt(storage, recentlyUpdated)
 
   // Build tools with result tracking
-  const { tools, getLastResult } = buildConsolidationTools(storage)
+  const {tools, getLastResult} = buildConsolidationTools(storage)
 
   // Run sub-agent
   const subAgentResult = await runSubAgent(storage, {
-    name: "ltm-curator",
+    name: 'ltm-curator',
     taskPrompt,
     tools,
-    finishToolName: "finish_consolidation",
+    finishToolName: 'finish_consolidation',
     extractResult: () => {
       // Extract summary from the last finish_consolidation call
       // This is a bit awkward - we track it via onToolResult
       return result.summary
     },
-    tier: "workhorse",
+    tier: 'workhorse',
     maxTurns: MAX_CONSOLIDATION_TURNS,
     maxTokens: 2048,
     onToolResult: (toolCallId) => {
@@ -280,7 +283,9 @@ export async function runConsolidation(
       if (toolResult.entryCreated) {
         result.entriesCreated++
         if (toolResult.slug) {
-          result.details.push(`Created [[${toolResult.slug}]]${toolResult.title ? ` - ${toolResult.title}` : ""}`)
+          result.details.push(
+            `Created [[${toolResult.slug}]]${toolResult.title ? ` - ${toolResult.title}` : ''}`,
+          )
         }
       }
       if (toolResult.entryUpdated) {
@@ -305,10 +310,10 @@ export async function runConsolidation(
 
   // If no summary was set, the agent ended without calling finish_consolidation
   if (!result.summary) {
-    result.summary = "Consolidation ended without explicit finish"
+    result.summary = 'Consolidation ended without explicit finish'
   }
 
-  log.info("consolidation complete", {
+  log.info('consolidation complete', {
     entriesCreated: result.entriesCreated,
     entriesUpdated: result.entriesUpdated,
     entriesArchived: result.entriesArchived,
@@ -326,11 +331,11 @@ export async function runConsolidationWorker(
   messages: TemporalMessage[],
 ): Promise<ConsolidationResult> {
   // Create worker record
-  const workerId = Identifier.ascending("worker")
+  const workerId = Identifier.ascending('worker')
   await storage.workers.create({
     id: workerId,
-    type: "ltm-consolidate",
-    status: "running",
+    type: 'ltm-consolidate',
+    status: 'running',
     startedAt: new Date().toISOString(),
     completedAt: null,
     error: null,

@@ -6,15 +6,15 @@
  * separate file that checks for ANTHROPIC_API_KEY.
  */
 
-import { describe, it, expect, beforeEach } from "bun:test"
-import { createInMemoryStorage, type Storage } from "../storage"
-import { Identifier } from "../id"
-import { buildTemporalView, reconstructHistoryAsTurns } from "./index"
-import type { TemporalMessage, TemporalSummary } from "../storage/schema"
+import {describe, it, expect, beforeEach} from 'bun:test'
+import {createInMemoryStorage, type Storage} from '../storage'
+import {Identifier} from '../id'
+import {buildTemporalView, reconstructHistoryAsTurns} from './index'
+import type {TemporalMessage, TemporalSummary} from '../storage/schema'
 
 const TEMPORAL_BUDGET = 8000
 
-describe("Temporal View Construction", () => {
+describe('Temporal View Construction', () => {
   let storage: Storage
 
   beforeEach(() => {
@@ -24,13 +24,16 @@ describe("Temporal View Construction", () => {
   /**
    * Helper to add messages to storage.
    */
-  async function addMessages(count: number, tokensPerMessage: number = 50): Promise<TemporalMessage[]> {
+  async function addMessages(
+    count: number,
+    tokensPerMessage: number = 50,
+  ): Promise<TemporalMessage[]> {
     const messages: TemporalMessage[] = []
     for (let i = 0; i < count; i++) {
       const msg: TemporalMessage = {
-        id: Identifier.ascending("message"),
-        type: i % 2 === 0 ? "user" : "assistant",
-        content: `Message ${i}: ${"x".repeat(tokensPerMessage * 4)}`,
+        id: Identifier.ascending('message'),
+        type: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Message ${i}: ${'x'.repeat(tokensPerMessage * 4)}`,
         tokenEstimate: tokensPerMessage,
         createdAt: new Date().toISOString(),
       }
@@ -50,13 +53,13 @@ describe("Temporal View Construction", () => {
     tokenEstimate: number = 100,
   ): Promise<TemporalSummary> {
     const summary: TemporalSummary = {
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum,
       startId,
       endId,
       narrative: `Summary covering ${startId} to ${endId}`,
-      keyObservations: JSON.stringify(["Observation 1", "Observation 2"]),
-      tags: JSON.stringify(["tag1"]),
+      keyObservations: JSON.stringify(['Observation 1', 'Observation 2']),
+      tags: JSON.stringify(['tag1']),
       tokenEstimate,
       createdAt: new Date().toISOString(),
     }
@@ -64,7 +67,7 @@ describe("Temporal View Construction", () => {
     return summary
   }
 
-  it("builds view with only messages", async () => {
+  it('builds view with only messages', async () => {
     const messages = await addMessages(10, 50)
 
     const view = buildTemporalView({
@@ -78,7 +81,7 @@ describe("Temporal View Construction", () => {
     expect(view.totalTokens).toBe(500) // 10 * 50
   })
 
-  it("builds view with messages and summaries", async () => {
+  it('builds view with messages and summaries', async () => {
     const messages = await addMessages(20, 50)
     const summaries = await storage.temporal.getSummaries()
 
@@ -96,7 +99,7 @@ describe("Temporal View Construction", () => {
     expect(view.messages.length).toBe(10) // Messages 10-19 (not covered by summary)
   })
 
-  it("includes all messages regardless of budget (budget is informational)", async () => {
+  it('includes all messages regardless of budget (budget is informational)', async () => {
     const messages = await addMessages(100, 100) // 10,000 tokens total
 
     const view = buildTemporalView({
@@ -110,7 +113,7 @@ describe("Temporal View Construction", () => {
     expect(view.totalTokens).toBe(10000)
   })
 
-  it("returns messages in chronological order", async () => {
+  it('returns messages in chronological order', async () => {
     const messages = await addMessages(50, 50)
 
     const view = buildTemporalView({
@@ -128,7 +131,7 @@ describe("Temporal View Construction", () => {
     }
   })
 
-  it("skips messages covered by summaries", async () => {
+  it('skips messages covered by summaries', async () => {
     const messages = await addMessages(20, 50)
 
     // Create summary covering first 10 messages
@@ -141,13 +144,13 @@ describe("Temporal View Construction", () => {
     })
 
     // Messages 0-9 should not be in view.messages (they're summarized)
-    const viewMessageIds = new Set(view.messages.map(m => m.id))
+    const viewMessageIds = new Set(view.messages.map((m) => m.id))
     for (let i = 0; i < 10; i++) {
       expect(viewMessageIds.has(messages[i].id)).toBe(false)
     }
   })
 
-  it("handles higher-order summaries correctly", async () => {
+  it('handles higher-order summaries correctly', async () => {
     const messages = await addMessages(30, 30)
 
     // Create order-1 summaries
@@ -164,35 +167,35 @@ describe("Temporal View Construction", () => {
     })
 
     // Should include the order-2 summary, not the order-1s
-    expect(view.summaries.some(s => s.orderNum === 2)).toBe(true)
+    expect(view.summaries.some((s) => s.orderNum === 2)).toBe(true)
     // The order-1 summaries should be excluded as they're subsumed
-    const nonSubsumed = view.summaries.filter(s => s.orderNum === 1)
+    const nonSubsumed = view.summaries.filter((s) => s.orderNum === 1)
     expect(nonSubsumed.length).toBe(0)
   })
 })
 
-describe("Temporal View Turn Reconstruction", () => {
+describe('Temporal View Turn Reconstruction', () => {
   let storage: Storage
 
   beforeEach(() => {
     storage = createInMemoryStorage()
   })
 
-  it("reconstructs simple user/assistant turns with IDs", async () => {
-    const userId = Identifier.ascending("message")
+  it('reconstructs simple user/assistant turns with IDs', async () => {
+    const userId = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: userId,
-      type: "user",
-      content: "Hello there",
+      type: 'user',
+      content: 'Hello there',
       tokenEstimate: 10,
       createdAt: new Date().toISOString(),
     })
 
-    const assistantId = Identifier.ascending("message")
+    const assistantId = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: assistantId,
-      type: "assistant",
-      content: "Hi! How can I help?",
+      type: 'assistant',
+      content: 'Hi! How can I help?',
       tokenEstimate: 15,
       createdAt: new Date().toISOString(),
     })
@@ -207,53 +210,53 @@ describe("Temporal View Turn Reconstruction", () => {
     const turns = reconstructHistoryAsTurns(view)
 
     expect(turns.length).toBe(2)
-    expect(turns[0].role).toBe("user")
+    expect(turns[0].role).toBe('user')
     expect(turns[0].content).toContain(`id:${userId}]`) // ID is present (with timestamp prefix)
-    expect(turns[0].content).toContain("Hello there")
-    expect(turns[1].role).toBe("assistant")
+    expect(turns[0].content).toContain('Hello there')
+    expect(turns[1].role).toBe('assistant')
     expect(turns[1].content).toContain(`id:${assistantId}]`) // ID is present (with timestamp prefix)
-    expect(turns[1].content).toContain("Hi! How can I help?")
+    expect(turns[1].content).toContain('Hi! How can I help?')
   })
 
-  it("reconstructs summaries with from/to IDs", async () => {
+  it('reconstructs summaries with from/to IDs', async () => {
     // Add messages
-    const msg1Id = Identifier.ascending("message")
+    const msg1Id = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: msg1Id,
-      type: "user",
-      content: "First message",
+      type: 'user',
+      content: 'First message',
       tokenEstimate: 10,
       createdAt: new Date().toISOString(),
     })
 
-    const msg2Id = Identifier.ascending("message")
+    const msg2Id = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: msg2Id,
-      type: "assistant",
-      content: "First response",
+      type: 'assistant',
+      content: 'First response',
       tokenEstimate: 10,
       createdAt: new Date().toISOString(),
     })
 
     // Add summary
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 1,
       startId: msg1Id,
       endId: msg2Id,
-      narrative: "Earlier discussion about setup",
-      keyObservations: JSON.stringify(["Key fact 1"]),
+      narrative: 'Earlier discussion about setup',
+      keyObservations: JSON.stringify(['Key fact 1']),
       tags: JSON.stringify([]),
       tokenEstimate: 30,
       createdAt: new Date().toISOString(),
     })
 
     // Add more recent messages
-    const msg3Id = Identifier.ascending("message")
+    const msg3Id = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: msg3Id,
-      type: "user",
-      content: "Later message",
+      type: 'user',
+      content: 'Later message',
       tokenEstimate: 10,
       createdAt: new Date().toISOString(),
     })
@@ -269,40 +272,45 @@ describe("Temporal View Turn Reconstruction", () => {
     const turns = reconstructHistoryAsTurns(view)
 
     // Should have: summary (assistant), then recent message
-    const summaryTurn = turns.find(t =>
-      t.role === "assistant" &&
-      typeof t.content === "string" &&
-      t.content.includes("[distilled from:")
+    const summaryTurn = turns.find(
+      (t) =>
+        t.role === 'assistant' &&
+        typeof t.content === 'string' &&
+        t.content.includes('[distilled from:'),
     )
     expect(summaryTurn).toBeDefined()
     expect(summaryTurn!.content).toContain(`from:${msg1Id}`)
     expect(summaryTurn!.content).toContain(`to:${msg2Id}`)
   })
 
-  it("handles tool call sequences", async () => {
-    const assistantId = Identifier.ascending("message")
+  it('handles tool call sequences', async () => {
+    const assistantId = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: assistantId,
-      type: "assistant",
-      content: "Let me check that file",
+      type: 'assistant',
+      content: 'Let me check that file',
       tokenEstimate: 10,
       createdAt: new Date().toISOString(),
     })
 
-    const toolCallId = Identifier.ascending("message")
+    const toolCallId = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: toolCallId,
-      type: "tool_call",
-      content: JSON.stringify({ name: "read_file", args: { path: "test.ts" }, toolCallId: "call_1" }),
+      type: 'tool_call',
+      content: JSON.stringify({
+        name: 'read_file',
+        args: {path: 'test.ts'},
+        toolCallId: 'call_1',
+      }),
       tokenEstimate: 20,
       createdAt: new Date().toISOString(),
     })
 
-    const toolResultId = Identifier.ascending("message")
+    const toolResultId = Identifier.ascending('message')
     await storage.temporal.appendMessage({
       id: toolResultId,
-      type: "tool_result",
-      content: "// File contents here",
+      type: 'tool_result',
+      content: '// File contents here',
       tokenEstimate: 30,
       createdAt: new Date().toISOString(),
     })
@@ -318,28 +326,28 @@ describe("Temporal View Turn Reconstruction", () => {
 
     // Should have assistant turn with tool call, then tool result turn
     expect(turns.length).toBe(2)
-    expect(turns[0].role).toBe("assistant")
-    expect(turns[1].role).toBe("tool")
+    expect(turns[0].role).toBe('assistant')
+    expect(turns[1].role).toBe('tool')
   })
 })
 
-describe("Summary Storage Operations", () => {
+describe('Summary Storage Operations', () => {
   let storage: Storage
 
   beforeEach(() => {
     storage = createInMemoryStorage()
   })
 
-  it("creates and retrieves summaries", async () => {
-    const summaryId = Identifier.ascending("summary")
+  it('creates and retrieves summaries', async () => {
+    const summaryId = Identifier.ascending('summary')
     await storage.temporal.createSummary({
       id: summaryId,
       orderNum: 1,
-      startId: "msg_start",
-      endId: "msg_end",
-      narrative: "Test narrative",
-      keyObservations: JSON.stringify(["obs1", "obs2"]),
-      tags: JSON.stringify(["tag1"]),
+      startId: 'msg_start',
+      endId: 'msg_end',
+      narrative: 'Test narrative',
+      keyObservations: JSON.stringify(['obs1', 'obs2']),
+      tags: JSON.stringify(['tag1']),
       tokenEstimate: 100,
       createdAt: new Date().toISOString(),
     })
@@ -347,44 +355,44 @@ describe("Summary Storage Operations", () => {
     const summaries = await storage.temporal.getSummaries()
     expect(summaries.length).toBe(1)
     expect(summaries[0].id).toBe(summaryId)
-    expect(summaries[0].narrative).toBe("Test narrative")
+    expect(summaries[0].narrative).toBe('Test narrative')
   })
 
-  it("gets summaries by order", async () => {
+  it('gets summaries by order', async () => {
     // Create order-1 summaries
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 1,
-      startId: "a",
-      endId: "b",
-      narrative: "First order 1",
-      keyObservations: "[]",
-      tags: "[]",
+      startId: 'a',
+      endId: 'b',
+      narrative: 'First order 1',
+      keyObservations: '[]',
+      tags: '[]',
       tokenEstimate: 50,
       createdAt: new Date().toISOString(),
     })
 
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 1,
-      startId: "c",
-      endId: "d",
-      narrative: "Second order 1",
-      keyObservations: "[]",
-      tags: "[]",
+      startId: 'c',
+      endId: 'd',
+      narrative: 'Second order 1',
+      keyObservations: '[]',
+      tags: '[]',
       tokenEstimate: 50,
       createdAt: new Date().toISOString(),
     })
 
     // Create order-2 summary
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 2,
-      startId: "a",
-      endId: "d",
-      narrative: "Order 2",
-      keyObservations: "[]",
-      tags: "[]",
+      startId: 'a',
+      endId: 'd',
+      narrative: 'Order 2',
+      keyObservations: '[]',
+      tags: '[]',
       tokenEstimate: 75,
       createdAt: new Date().toISOString(),
     })
@@ -396,40 +404,40 @@ describe("Summary Storage Operations", () => {
     expect(order2.length).toBe(1)
   })
 
-  it("gets highest order summaries (non-subsumed)", async () => {
+  it('gets highest order summaries (non-subsumed)', async () => {
     // Create structure where order-2 subsumes two order-1s
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 1,
-      startId: "a",
-      endId: "b",
-      narrative: "First",
-      keyObservations: "[]",
-      tags: "[]",
+      startId: 'a',
+      endId: 'b',
+      narrative: 'First',
+      keyObservations: '[]',
+      tags: '[]',
       tokenEstimate: 50,
       createdAt: new Date().toISOString(),
     })
 
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 1,
-      startId: "c",
-      endId: "d",
-      narrative: "Second",
-      keyObservations: "[]",
-      tags: "[]",
+      startId: 'c',
+      endId: 'd',
+      narrative: 'Second',
+      keyObservations: '[]',
+      tags: '[]',
       tokenEstimate: 50,
       createdAt: new Date().toISOString(),
     })
 
     await storage.temporal.createSummary({
-      id: Identifier.ascending("summary"),
+      id: Identifier.ascending('summary'),
       orderNum: 2,
-      startId: "a",
-      endId: "d",
-      narrative: "Combined",
-      keyObservations: "[]",
-      tags: "[]",
+      startId: 'a',
+      endId: 'd',
+      narrative: 'Combined',
+      keyObservations: '[]',
+      tags: '[]',
       tokenEstimate: 75,
       createdAt: new Date().toISOString(),
     })

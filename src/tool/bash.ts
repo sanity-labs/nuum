@@ -7,17 +7,17 @@
  * Basic bash execution with timeout and abort support.
  */
 
-import { z } from "zod"
-import { spawn } from "child_process"
-import { Tool } from "./tool"
-import { Shell } from "../shell"
-import { Log } from "../util/log"
-import { getSpawnEnvironment } from "../context/environment"
+import {z} from 'zod'
+import {spawn} from 'child_process'
+import {Tool} from './tool'
+import {Shell} from '../shell'
+import {Log} from '../util/log'
+import {getSpawnEnvironment} from '../context/environment'
 
 const MAX_OUTPUT_LENGTH = 50_000
 const DEFAULT_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutes
 
-const log = Log.create({ service: "bash-tool" })
+const log = Log.create({service: 'bash-tool'})
 
 export interface BashMetadata {
   output: string
@@ -34,7 +34,7 @@ export const BashTool = Tool.define<
     description: z.ZodString
   }>,
   BashMetadata
->("bash", {
+>('bash', {
   description: `Execute a bash command in a persistent shell session.
 
 IMPORTANT: Prefer dedicated tools for file operations instead of bash:
@@ -50,18 +50,22 @@ Use this tool for:
 - System commands that don't have dedicated tools`,
 
   parameters: z.object({
-    command: z.string().describe("The command to execute"),
+    command: z.string().describe('The command to execute'),
     timeout: z
       .number()
-      .describe("Optional timeout in milliseconds (default: 120000)")
+      .describe('Optional timeout in milliseconds (default: 120000)')
       .optional(),
     workdir: z
       .string()
-      .describe("Working directory for the command (default: current directory)")
+      .describe(
+        'Working directory for the command (default: current directory)',
+      )
       .optional(),
     description: z
       .string()
-      .describe("Clear, concise description of what this command does in 5-10 words"),
+      .describe(
+        'Clear, concise description of what this command does in 5-10 words',
+      ),
   }),
 
   async execute(params, ctx) {
@@ -69,17 +73,19 @@ Use this tool for:
     const cwd = params.workdir || process.cwd()
     const timeout = params.timeout ?? DEFAULT_TIMEOUT_MS
 
-    log.debug("executing", { command: params.command, cwd, shell })
+    log.debug('executing', {command: params.command, cwd, shell})
 
     if (timeout < 0) {
-      throw new Error(`Invalid timeout value: ${timeout}. Timeout must be a positive number.`)
+      throw new Error(
+        `Invalid timeout value: ${timeout}. Timeout must be a positive number.`,
+      )
     }
 
     // Request permission (auto-approved in Phase 1)
     await ctx.ask({
-      permission: "bash",
+      permission: 'bash',
       patterns: [params.command],
-      always: ["*"],
+      always: ['*'],
       metadata: {},
     })
 
@@ -87,15 +93,15 @@ Use this tool for:
       shell,
       cwd,
       env: getSpawnEnvironment(),
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32",
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     })
 
-    let output = ""
+    let output = ''
 
     ctx.metadata({
       metadata: {
-        output: "",
+        output: '',
         exit: null,
         description: params.description,
       },
@@ -105,23 +111,24 @@ Use this tool for:
       output += chunk.toString()
       ctx.metadata({
         metadata: {
-          output: output.length > MAX_OUTPUT_LENGTH
-            ? output.slice(0, MAX_OUTPUT_LENGTH) + "\n\n... (truncated)"
-            : output,
+          output:
+            output.length > MAX_OUTPUT_LENGTH
+              ? output.slice(0, MAX_OUTPUT_LENGTH) + '\n\n... (truncated)'
+              : output,
           exit: null,
           description: params.description,
         },
       })
     }
 
-    proc.stdout?.on("data", append)
-    proc.stderr?.on("data", append)
+    proc.stdout?.on('data', append)
+    proc.stderr?.on('data', append)
 
     let timedOut = false
     let aborted = false
     let exited = false
 
-    const kill = () => Shell.killTree(proc, { exited: () => exited })
+    const kill = () => Shell.killTree(proc, {exited: () => exited})
 
     if (ctx.abort.aborted) {
       aborted = true
@@ -133,7 +140,7 @@ Use this tool for:
       void kill()
     }
 
-    ctx.abort.addEventListener("abort", abortHandler, { once: true })
+    ctx.abort.addEventListener('abort', abortHandler, {once: true})
 
     const timeoutTimer = setTimeout(() => {
       timedOut = true
@@ -143,16 +150,16 @@ Use this tool for:
     await new Promise<void>((resolve, reject) => {
       const cleanup = () => {
         clearTimeout(timeoutTimer)
-        ctx.abort.removeEventListener("abort", abortHandler)
+        ctx.abort.removeEventListener('abort', abortHandler)
       }
 
-      proc.once("exit", () => {
+      proc.once('exit', () => {
         exited = true
         cleanup()
         resolve()
       })
 
-      proc.once("error", (error) => {
+      proc.once('error', (error) => {
         exited = true
         cleanup()
         reject(error)
@@ -162,20 +169,25 @@ Use this tool for:
     const resultMetadata: string[] = []
 
     if (timedOut) {
-      resultMetadata.push(`Command terminated after exceeding timeout (${timeout}ms)`)
+      resultMetadata.push(
+        `Command terminated after exceeding timeout (${timeout}ms)`,
+      )
     }
 
     if (aborted) {
-      resultMetadata.push("Command aborted by user")
+      resultMetadata.push('Command aborted by user')
     }
 
     if (resultMetadata.length > 0) {
-      output += "\n\n<bash_metadata>\n" + resultMetadata.join("\n") + "\n</bash_metadata>"
+      output +=
+        '\n\n<bash_metadata>\n' +
+        resultMetadata.join('\n') +
+        '\n</bash_metadata>'
     }
 
     const truncated = output.length > MAX_OUTPUT_LENGTH
     const finalOutput = truncated
-      ? output.slice(0, MAX_OUTPUT_LENGTH) + "\n\n... (truncated)"
+      ? output.slice(0, MAX_OUTPUT_LENGTH) + '\n\n... (truncated)'
       : output
 
     return {

@@ -14,13 +14,13 @@
  * diverge only at the final user message which specifies the task.
  */
 
-import type { CoreMessage } from "ai"
-import type { Storage } from "../storage"
-import { buildSystemPrompt } from "./system-prompt"
-import { buildConversationHistory } from "./history"
+import type {CoreMessage} from 'ai'
+import type {Storage} from '../storage'
+import {buildSystemPrompt} from './system-prompt'
+import {buildConversationHistory} from './history'
 
-export { buildSystemPrompt } from "./system-prompt"
-export { buildConversationHistory } from "./history"
+export {buildSystemPrompt} from './system-prompt'
+export {buildConversationHistory} from './history'
 
 /**
  * The complete agent context before a workload-specific task is added.
@@ -45,8 +45,11 @@ export interface AgentContext {
  * const messages = [...ctx.historyTurns, { role: "user", content: taskPrompt }]
  * ```
  */
-export async function buildAgentContext(storage: Storage): Promise<AgentContext> {
-  const { prompt: systemPrompt, tokens: systemTokens } = await buildSystemPrompt(storage)
+export async function buildAgentContext(
+  storage: Storage,
+): Promise<AgentContext> {
+  const {prompt: systemPrompt, tokens: systemTokens} =
+    await buildSystemPrompt(storage)
   const historyTurns = await buildConversationHistory(storage)
 
   return {

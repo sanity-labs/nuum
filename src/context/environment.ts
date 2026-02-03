@@ -1,9 +1,9 @@
 /**
  * Environment context for the current turn.
- * 
+ *
  * Stores environment variables received from CAST per-message.
  * Used by tools (bash, grep, etc.) when spawning child processes.
- * 
+ *
  * This is a module-level singleton since Nuum runs as a single-agent subprocess.
  * Each message can update the environment, and it's applied to subsequent spawns.
  */
@@ -33,7 +33,7 @@ export function getEnvironment(): Record<string, string> {
  */
 export function getSpawnEnvironment(): Record<string, string> {
   return {
-    ...process.env as Record<string, string>,
+    ...(process.env as Record<string, string>),
     ...currentEnvironment,
   }
 }

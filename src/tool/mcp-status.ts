@@ -1,13 +1,13 @@
 /**
  * MCP status inspection tool.
- * 
+ *
  * Allows the agent to see what MCP servers are configured,
  * their connection status, and what tools are available.
  */
 
-import { z } from "zod"
-import { Tool } from "./tool"
-import { Mcp } from "../mcp"
+import {z} from 'zod'
+import {Tool} from './tool'
+import {Mcp} from '../mcp'
 
 export interface McpStatusMetadata {
   serverCount: number
@@ -18,7 +18,7 @@ export interface McpStatusMetadata {
 const parameters = z.object({})
 
 export const McpStatusTool = Tool.define<typeof parameters, McpStatusMetadata>(
-  "mcp_status",
+  'mcp_status',
   {
     description: `Inspect MCP (Model Context Protocol) server status.
 
@@ -35,14 +35,14 @@ Use this when:
     async execute(_args, _ctx) {
       const status = Mcp.getStatus()
       const toolNames = Mcp.getToolNames()
-      
-      let output = "## MCP Server Status\n\n"
-      
+
+      let output = '## MCP Server Status\n\n'
+
       if (status.length === 0) {
-        output += "No MCP servers configured.\n"
+        output += 'No MCP servers configured.\n'
         return {
           output,
-          title: "MCP Status",
+          title: 'MCP Status',
           metadata: {
             serverCount: 0,
             connectedCount: 0,
@@ -50,42 +50,48 @@ Use this when:
           },
         }
       }
-      
+
       let connectedCount = 0
-      
+
       for (const server of status) {
-        const statusIcon = server.status === "connected" ? "✓" : 
-                          server.status === "connecting" ? "⋯" : "✗"
-        
+        const statusIcon =
+          server.status === 'connected'
+            ? '✓'
+            : server.status === 'connecting'
+              ? '⋯'
+              : '✗'
+
         output += `### ${server.name} ${statusIcon}\n`
         output += `- Status: ${server.status}\n`
-        
-        if (server.status === "connected") {
+
+        if (server.status === 'connected') {
           connectedCount++
           output += `- Tools: ${server.toolCount}\n`
-          
+
           // List tools from this server
-          const serverTools = toolNames.filter(t => t.startsWith(`${server.name}__`))
+          const serverTools = toolNames.filter((t) =>
+            t.startsWith(`${server.name}__`),
+          )
           if (serverTools.length > 0) {
             output += `- Available:\n`
             for (const tool of serverTools) {
-              const toolName = tool.replace(`${server.name}__`, "")
+              const toolName = tool.replace(`${server.name}__`, '')
               output += `  - ${toolName}\n`
             }
           }
         } else if (server.error) {
           output += `- Error: ${server.error}\n`
         }
-        
-        output += "\n"
+
+        output += '\n'
       }
-      
+
       output += `---\n`
       output += `**Summary:** ${connectedCount}/${status.length} servers connected, ${toolNames.length} tools available\n`
-      
+
       return {
         output,
-        title: "MCP Status",
+        title: 'MCP Status',
         metadata: {
           serverCount: status.length,
           connectedCount,
@@ -93,5 +99,5 @@ Use this when:
         },
       }
     },
-  }
+  },
 )

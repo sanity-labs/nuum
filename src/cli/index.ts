@@ -7,18 +7,18 @@
  * Phase 3a: `miriad-code --stdio` for JSON-RPC mode
  */
 
-import { parseArgs } from "util"
-import { runBatch } from "./batch"
-import { runInspect, runDump, runCompact } from "./inspect"
-import { runServer } from "../jsonrpc"
-import { runRepl } from "./repl"
-import { VERSION_STRING } from "../version"
+import {parseArgs} from 'util'
+import {runBatch} from './batch'
+import {runInspect, runDump, runCompact} from './inspect'
+import {runServer} from '../jsonrpc'
+import {runRepl} from './repl'
+import {VERSION_STRING} from '../version'
 
 interface CliOptions {
   prompt: string | undefined
   verbose: boolean
   db: string
-  format: "text" | "json"
+  format: 'text' | 'json'
   help: boolean
   version: boolean
   inspect: boolean
@@ -29,19 +29,19 @@ interface CliOptions {
 }
 
 function parseCliArgs(): CliOptions {
-  const { values } = parseArgs({
+  const {values} = parseArgs({
     options: {
-      prompt: { type: "string", short: "p" },
-      verbose: { type: "boolean", short: "v", default: false },
-      db: { type: "string", default: "./agent.db" },
-      format: { type: "string", default: "text" },
-      help: { type: "boolean", short: "h", default: false },
-      version: { type: "boolean", short: "V", default: false },
-      inspect: { type: "boolean", default: false },
-      dump: { type: "boolean", default: false },
-      compact: { type: "boolean", default: false },
-      stdio: { type: "boolean", default: false },
-      repl: { type: "boolean", default: false },
+      prompt: {type: 'string', short: 'p'},
+      verbose: {type: 'boolean', short: 'v', default: false},
+      db: {type: 'string', default: './agent.db'},
+      format: {type: 'string', default: 'text'},
+      help: {type: 'boolean', short: 'h', default: false},
+      version: {type: 'boolean', short: 'V', default: false},
+      inspect: {type: 'boolean', default: false},
+      dump: {type: 'boolean', default: false},
+      compact: {type: 'boolean', default: false},
+      stdio: {type: 'boolean', default: false},
+      repl: {type: 'boolean', default: false},
     },
     allowPositionals: false,
   })
@@ -49,8 +49,8 @@ function parseCliArgs(): CliOptions {
   return {
     prompt: values.prompt,
     verbose: values.verbose ?? false,
-    db: values.db ?? "./agent.db",
-    format: (values.format as "text" | "json") ?? "text",
+    db: values.db ?? './agent.db',
+    format: (values.format as 'text' | 'json') ?? 'text',
     help: values.help ?? false,
     version: values.version ?? false,
     inspect: values.inspect ?? false,
@@ -139,13 +139,13 @@ async function main(): Promise<void> {
   // Handle --repl (interactive mode)
   if (options.repl) {
     try {
-      await runRepl({ dbPath: options.db })
+      await runRepl({dbPath: options.db})
       // runRepl keeps running until user quits
     } catch (error) {
       if (error instanceof Error) {
         console.error(`Error: ${error.message}`)
       } else {
-        console.error("Unknown error:", error)
+        console.error('Unknown error:', error)
       }
       process.exit(1)
     }
@@ -155,13 +155,13 @@ async function main(): Promise<void> {
   // Handle --stdio (JSON-RPC mode)
   if (options.stdio) {
     try {
-      await runServer({ dbPath: options.db })
+      await runServer({dbPath: options.db})
       // runServer keeps running until stdin closes
     } catch (error) {
       if (error instanceof Error) {
         console.error(`Error: ${error.message}`)
       } else {
-        console.error("Unknown error:", error)
+        console.error('Unknown error:', error)
       }
       process.exit(1)
     }
@@ -177,7 +177,7 @@ async function main(): Promise<void> {
       if (error instanceof Error) {
         console.error(`Error: ${error.message}`)
       } else {
-        console.error("Unknown error:", error)
+        console.error('Unknown error:', error)
       }
       process.exit(1)
     }
@@ -192,7 +192,7 @@ async function main(): Promise<void> {
       if (error instanceof Error) {
         console.error(`Error: ${error.message}`)
       } else {
-        console.error("Unknown error:", error)
+        console.error('Unknown error:', error)
       }
       process.exit(1)
     }
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
       if (error instanceof Error) {
         console.error(`Error: ${error.message}`)
       } else {
-        console.error("Unknown error:", error)
+        console.error('Unknown error:', error)
       }
       process.exit(1)
     }
@@ -215,8 +215,10 @@ async function main(): Promise<void> {
 
   // Regular prompt mode requires --prompt
   if (!options.prompt) {
-    console.error("Error: --prompt (-p) is required (or use --repl/--stdio/--inspect/--dump)")
-    console.error("Run with --help for usage information")
+    console.error(
+      'Error: --prompt (-p) is required (or use --repl/--stdio/--inspect/--dump)',
+    )
+    console.error('Run with --help for usage information')
     process.exit(1)
   }
 
@@ -234,7 +236,7 @@ async function main(): Promise<void> {
         console.error(error.stack)
       }
     } else {
-      console.error("Unknown error:", error)
+      console.error('Unknown error:', error)
     }
     process.exit(1)
   }

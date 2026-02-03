@@ -6,9 +6,9 @@
  * that would be sent to the agent (summaries + uncovered messages).
  */
 
-import type { TemporalStorage } from "../storage"
-import type { WorkerStorage } from "../storage"
-import { buildTemporalView } from "./view"
+import type {TemporalStorage} from '../storage'
+import type {WorkerStorage} from '../storage'
+import {buildTemporalView} from './view'
 
 export interface CompactionConfig {
   /** Trigger compaction when effective view exceeds this threshold */
@@ -36,7 +36,9 @@ export async function shouldTriggerCompaction(
 ): Promise<boolean> {
   // Check if compaction is already running
   const runningWorkers = await workers.getRunning()
-  const compactionRunning = runningWorkers.some((w) => w.type === "temporal-compact")
+  const compactionRunning = runningWorkers.some(
+    (w) => w.type === 'temporal-compact',
+  )
   if (compactionRunning) {
     return false // Don't double-trigger
   }
@@ -63,10 +65,12 @@ export const FIXED_OVERHEAD_TOKENS = 40_000
  * Get the token count of the effective view (what actually goes to the agent).
  * Includes fixed overhead for system prompt, tools, and formatting.
  */
-export async function getEffectiveViewTokens(temporal: TemporalStorage): Promise<number> {
+export async function getEffectiveViewTokens(
+  temporal: TemporalStorage,
+): Promise<number> {
   const messages = await temporal.getMessages()
   const summaries = await temporal.getSummaries()
-  const view = buildTemporalView({ budget: 0, messages, summaries })
+  const view = buildTemporalView({budget: 0, messages, summaries})
   return view.totalTokens + FIXED_OVERHEAD_TOKENS
 }
 
@@ -77,11 +81,13 @@ export async function getCompactionState(
   workers: WorkerStorage,
 ): Promise<CompactionState> {
   const runningWorkers = await workers.getRunning()
-  const compactionWorker = runningWorkers.find((w) => w.type === "temporal-compact")
+  const compactionWorker = runningWorkers.find(
+    (w) => w.type === 'temporal-compact',
+  )
   if (compactionWorker) {
-    return { isRunning: true, workerId: compactionWorker.id }
+    return {isRunning: true, workerId: compactionWorker.id}
   }
-  return { isRunning: false }
+  return {isRunning: false}
 }
 
 /**
@@ -105,7 +111,10 @@ export async function calculateCompactionTarget(
  */
 export async function getMessagesToCompact(
   temporal: TemporalStorage,
-): Promise<{ messages: Awaited<ReturnType<TemporalStorage["getMessages"]>>; fromId: string | null }> {
+): Promise<{
+  messages: Awaited<ReturnType<TemporalStorage['getMessages']>>
+  fromId: string | null
+}> {
   const lastEndId = await temporal.getLastSummaryEndId()
 
   if (lastEndId) {
@@ -113,12 +122,12 @@ export async function getMessagesToCompact(
     const messages = await temporal.getMessages(lastEndId)
     // Filter out the boundary message (it's already summarized)
     const filtered = messages.filter((m) => m.id > lastEndId)
-    return { messages: filtered, fromId: lastEndId }
+    return {messages: filtered, fromId: lastEndId}
   }
 
   // No summaries yet - all messages need compaction
   const messages = await temporal.getMessages()
-  return { messages, fromId: null }
+  return {messages, fromId: null}
 }
 
 /**
@@ -131,31 +140,35 @@ export async function getMessagesToCompact(
  */
 export const COMPRESSION_TARGETS = {
   /** Target number of messages per order-1 summary */
-  messagesPerOrder1: { min: 15, max: 25 },
+  messagesPerOrder1: {min: 15, max: 25},
   /** Target tokens for order-1 summary output */
-  order1OutputTokens: { min: 500, max: 800 },
+  order1OutputTokens: {min: 500, max: 800},
   /** Target number of lower-order summaries per higher-order summary */
-  summariesPerHigherOrder: { min: 4, max: 5 },
+  summariesPerHigherOrder: {min: 4, max: 5},
   /** Target tokens for order-2 summary output */
-  order2OutputTokens: { min: 300, max: 500 },
+  order2OutputTokens: {min: 300, max: 500},
   /** Target tokens for order-3+ summary output */
-  order3PlusOutputTokens: { min: 150, max: 250 },
+  order3PlusOutputTokens: {min: 150, max: 250},
 } as const
 
 /**
  * Determine if enough order-1 summaries exist to create an order-2 summary.
  */
 export function shouldCreateOrder2Summary(
-  order1Summaries: Array<{ id: string; orderNum: number }>,
+  order1Summaries: Array<{id: string; orderNum: number}>,
 ): boolean {
-  return order1Summaries.length >= COMPRESSION_TARGETS.summariesPerHigherOrder.min
+  return (
+    order1Summaries.length >= COMPRESSION_TARGETS.summariesPerHigherOrder.min
+  )
 }
 
 /**
  * Determine if enough order-N summaries exist to create an order-(N+1) summary.
  */
 export function shouldCreateHigherOrderSummary(
-  summariesAtOrder: Array<{ id: string; orderNum: number }>,
+  summariesAtOrder: Array<{id: string; orderNum: number}>,
 ): boolean {
-  return summariesAtOrder.length >= COMPRESSION_TARGETS.summariesPerHigherOrder.min
+  return (
+    summariesAtOrder.length >= COMPRESSION_TARGETS.summariesPerHigherOrder.min
+  )
 }

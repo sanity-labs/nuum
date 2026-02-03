@@ -5,8 +5,14 @@
  * No raw SQL leaks out of this module.
  */
 
-import { createDb, createInMemoryDb, initializeSchema, getRawConnection, type DrizzleDB } from "./db"
-import { runMigrations } from "./migrate"
+import {
+  createDb,
+  createInMemoryDb,
+  initializeSchema,
+  getRawConnection,
+  type DrizzleDB,
+} from './db'
+import {runMigrations} from './migrate'
 import {
   createTemporalStorage,
   type TemporalStorage,
@@ -14,13 +20,13 @@ import {
   type TemporalSearchResult,
   type FTSSearchResult,
   type MessageWithContextParams,
-} from "./temporal"
+} from './temporal'
 import {
   createPresentStorage,
   type PresentStorage,
   type PresentState,
   type Task,
-} from "./present"
+} from './present'
 import {
   createLTMStorage,
   type LTMStorage,
@@ -29,11 +35,29 @@ import {
   type LTMFTSSearchResult,
   type AgentType,
   ConflictError,
-} from "./ltm"
-import { createWorkerStorage, type WorkerStorage, type WorkerType, type WorkerStatus } from "./worker"
-import { createSessionStorage, type SessionStorage } from "./session"
-import { createBackgroundStorage, type BackgroundStorage, type BackgroundReport, type BackgroundReportInput } from "./background"
-import { createTasksStorage, type TasksStorage, type BackgroundTask, type QueuedTaskResult, type Alarm, type CreateTaskInput, type CreateAlarmInput } from "./tasks"
+} from './ltm'
+import {
+  createWorkerStorage,
+  type WorkerStorage,
+  type WorkerType,
+  type WorkerStatus,
+} from './worker'
+import {createSessionStorage, type SessionStorage} from './session'
+import {
+  createBackgroundStorage,
+  type BackgroundStorage,
+  type BackgroundReport,
+  type BackgroundReportInput,
+} from './background'
+import {
+  createTasksStorage,
+  type TasksStorage,
+  type BackgroundTask,
+  type QueuedTaskResult,
+  type Alarm,
+  type CreateTaskInput,
+  type CreateAlarmInput,
+} from './tasks'
 
 // Re-export types
 export type {
@@ -65,7 +89,7 @@ export type {
   CreateAlarmInput,
 }
 
-export { ConflictError }
+export {ConflictError}
 
 // Re-export schema types
 export type {
@@ -77,7 +101,7 @@ export type {
   LTMEntryInsert,
   Worker,
   WorkerInsert,
-} from "./schema"
+} from './schema'
 
 /**
  * The Storage interface - all access through here
@@ -107,13 +131,13 @@ export interface StorageWithDb extends Storage {
  */
 export function createStorage(
   dbPath: string,
-  options?: { initialize?: boolean },
+  options?: {initialize?: boolean},
 ): StorageWithDb {
   // Ensure parent directory exists
-  const { mkdirSync } = require("fs")
-  const { dirname } = require("path")
-  mkdirSync(dirname(dbPath), { recursive: true })
-  
+  const {mkdirSync} = require('fs')
+  const {dirname} = require('path')
+  mkdirSync(dirname(dbPath), {recursive: true})
+
   const db = createDb(dbPath)
 
   if (options?.initialize !== false) {
@@ -146,19 +170,21 @@ function createStorageFromDb(db: DrizzleDB): StorageWithDb {
   }
 }
 
-export { getRawConnection }
+export {getRawConnection}
 
 /**
  * Clean up stale workers from a previous crashed session.
- * 
+ *
  * If the process was killed while workers were running, their status
  * will be stuck as "running" in the database. This prevents new
  * compaction/consolidation from triggering.
- * 
+ *
  * Call this on startup before running any agents.
  */
 export async function cleanupStaleWorkers(storage: Storage): Promise<number> {
-  const cleaned = await storage.workers.failAllRunning("Process terminated unexpectedly")
+  const cleaned = await storage.workers.failAllRunning(
+    'Process terminated unexpectedly',
+  )
   return cleaned
 }
 
@@ -168,14 +194,16 @@ export async function cleanupStaleWorkers(storage: Storage): Promise<number> {
  * These special entries are always included in the system prompt.
  * Called on first run or when the entries don't exist.
  */
-export async function initializeDefaultEntries(storage: Storage): Promise<void> {
+export async function initializeDefaultEntries(
+  storage: Storage,
+): Promise<void> {
   // Check if /identity exists
-  const identity = await storage.ltm.read("identity")
+  const identity = await storage.ltm.read('identity')
   if (!identity) {
     await storage.ltm.create({
-      slug: "identity",
+      slug: 'identity',
       parentSlug: null,
-      title: "Identity",
+      title: 'Identity',
       body: `# Identity
 
 I am a coding assistant with persistent memory.
@@ -187,17 +215,17 @@ My memory spans across conversations, allowing me to:
 - Maintain context about the codebase we're working on
 
 Update this entry to customize who I am.`,
-      createdBy: "main",
+      createdBy: 'main',
     })
   }
 
   // Check if /behavior exists
-  const behavior = await storage.ltm.read("behavior")
+  const behavior = await storage.ltm.read('behavior')
   if (!behavior) {
     await storage.ltm.create({
-      slug: "behavior",
+      slug: 'behavior',
       parentSlug: null,
-      title: "Behavior",
+      title: 'Behavior',
       body: `# Behavior
 
 Guidelines for how I should operate:
@@ -209,7 +237,7 @@ Guidelines for how I should operate:
 - Keep commits atomic and well-described
 
 Update this entry to customize how I behave.`,
-      createdBy: "main",
+      createdBy: 'main',
     })
   }
 }

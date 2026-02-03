@@ -5,17 +5,17 @@
  * Uses Claude-compatible config format for easy migration.
  */
 
-import { z } from "zod"
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js"
-import type { Tool } from "@modelcontextprotocol/sdk/types.js"
-import { tool } from "ai"
-import { jsonSchema } from "ai"
-import * as fs from "node:fs/promises"
-import * as path from "node:path"
-import * as os from "node:os"
+import {z} from 'zod'
+import {Client} from '@modelcontextprotocol/sdk/client/index.js'
+import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js'
+import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import {SSEClientTransport} from '@modelcontextprotocol/sdk/client/sse.js'
+import type {Tool} from '@modelcontextprotocol/sdk/types.js'
+import {tool} from 'ai'
+import {jsonSchema} from 'ai'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
+import * as os from 'node:os'
 
 export namespace Mcp {
   // ============================================================================
@@ -41,7 +41,7 @@ export namespace Mcp {
   export const HttpServerConfigSchema = z.object({
     url: z.string().url(),
     headers: z.record(z.string()).optional(),
-    transport: z.enum(["http", "sse"]).optional().default("http"),
+    transport: z.enum(['http', 'sse']).optional().default('http'),
     disabled: z.boolean().optional().default(false),
     timeout: z.number().optional().default(30000),
     // Reconnection options
@@ -82,11 +82,11 @@ export namespace Mcp {
 
   const CONFIG_FILE_PATH = path.join(
     os.homedir(),
-    ".config",
-    "miriad",
-    "code.json"
+    '.config',
+    'miriad',
+    'code.json',
   )
-  const CONFIG_ENV_VAR = "MIRIAD_MCP_CONFIG"
+  const CONFIG_ENV_VAR = 'MIRIAD_MCP_CONFIG'
 
   /**
    * Load MCP config from env var or file
@@ -106,7 +106,7 @@ export namespace Mcp {
 
     // Try config file
     try {
-      const content = await fs.readFile(CONFIG_FILE_PATH, "utf-8")
+      const content = await fs.readFile(CONFIG_FILE_PATH, 'utf-8')
       const parsed = JSON.parse(content)
       return ConfigSchema.parse(parsed)
     } catch {
@@ -114,7 +114,7 @@ export namespace Mcp {
     }
 
     // Return empty config
-    return { mcpServers: {} }
+    return {mcpServers: {}}
   }
 
   // ============================================================================
@@ -122,11 +122,11 @@ export namespace Mcp {
   // ============================================================================
 
   function isStdioConfig(config: ServerConfig): config is StdioServerConfig {
-    return "command" in config
+    return 'command' in config
   }
 
   function isHttpConfig(config: ServerConfig): config is HttpServerConfig {
-    return "url" in config
+    return 'url' in config
   }
 
   // ============================================================================
@@ -138,7 +138,7 @@ export namespace Mcp {
     config: ServerConfig
     client: Client
     tools: Tool[]
-    status: "connected" | "failed" | "disabled"
+    status: 'connected' | 'failed' | 'disabled'
     error?: string
     sessionId?: string // For HTTP transports - enables session resumption
   }
@@ -156,20 +156,16 @@ export namespace Mcp {
           args: config.args,
           env: config.env,
           cwd: config.cwd,
-          stderr: "pipe", // Capture stderr for logging
+          stderr: 'pipe', // Capture stderr for logging
         })
       } else if (isHttpConfig(config)) {
-        if (config.transport === "sse") {
+        if (config.transport === 'sse') {
           return new SSEClientTransport(new URL(config.url), {
-            requestInit: config.headers
-              ? { headers: config.headers }
-              : undefined,
+            requestInit: config.headers ? {headers: config.headers} : undefined,
           })
         } else {
           return new StreamableHTTPClientTransport(new URL(config.url), {
-            requestInit: config.headers
-              ? { headers: config.headers }
-              : undefined,
+            requestInit: config.headers ? {headers: config.headers} : undefined,
             reconnectionOptions: {
               maxRetries: config.maxRetries ?? 5,
               initialReconnectionDelay: config.initialReconnectionDelay ?? 1000,
@@ -179,7 +175,7 @@ export namespace Mcp {
           })
         }
       }
-      throw new Error("Unknown server config type")
+      throw new Error('Unknown server config type')
     }
 
     /**
@@ -187,7 +183,7 @@ export namespace Mcp {
      */
     private async connectServer(
       name: string,
-      config: ServerConfig
+      config: ServerConfig,
     ): Promise<ConnectedServer> {
       if (config.disabled) {
         return {
@@ -195,13 +191,13 @@ export namespace Mcp {
           config,
           client: null as unknown as Client,
           tools: [],
-          status: "disabled",
+          status: 'disabled',
         }
       }
 
       const client = new Client(
-        { name: "miriad-code", version: "0.1.0" },
-        { capabilities: {} }
+        {name: 'miriad-code', version: '0.1.0'},
+        {capabilities: {}},
       )
 
       try {
@@ -209,7 +205,7 @@ export namespace Mcp {
 
         // Set up stderr logging for stdio transports
         if (transport instanceof StdioClientTransport && transport.stderr) {
-          transport.stderr.on("data", (chunk: Buffer) => {
+          transport.stderr.on('data', (chunk: Buffer) => {
             console.error(`[mcp:${name}] ${chunk.toString().trim()}`)
           })
         }
@@ -219,7 +215,10 @@ export namespace Mcp {
         await Promise.race([
           client.connect(transport),
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Connection timeout")), timeoutMs)
+            setTimeout(
+              () => reject(new Error('Connection timeout')),
+              timeoutMs,
+            ),
           ),
         ])
 
@@ -232,12 +231,18 @@ export namespace Mcp {
         if (transport instanceof StreamableHTTPClientTransport) {
           sessionId = transport.sessionId
           if (sessionId) {
-            console.error(`[mcp:${name}] Connected with session ${sessionId.slice(0, 8)}..., ${tools.length} tools available`)
+            console.error(
+              `[mcp:${name}] Connected with session ${sessionId.slice(0, 8)}..., ${tools.length} tools available`,
+            )
           } else {
-            console.error(`[mcp:${name}] Connected (no session), ${tools.length} tools available`)
+            console.error(
+              `[mcp:${name}] Connected (no session), ${tools.length} tools available`,
+            )
           }
         } else {
-          console.error(`[mcp:${name}] Connected, ${tools.length} tools available`)
+          console.error(
+            `[mcp:${name}] Connected, ${tools.length} tools available`,
+          )
         }
 
         return {
@@ -245,7 +250,7 @@ export namespace Mcp {
           config,
           client,
           tools,
-          status: "connected",
+          status: 'connected',
           sessionId,
         }
       } catch (e) {
@@ -256,7 +261,7 @@ export namespace Mcp {
           config,
           client,
           tools: [],
-          status: "failed",
+          status: 'failed',
           error,
         }
       }
@@ -277,8 +282,8 @@ export namespace Mcp {
       const entries = Object.entries(mcpConfig.mcpServers)
       const results = await Promise.all(
         entries.map(([name, serverConfig]) =>
-          this.connectServer(name, serverConfig)
-        )
+          this.connectServer(name, serverConfig),
+        ),
       )
 
       // Store connected servers
@@ -286,13 +291,13 @@ export namespace Mcp {
         this.servers.set(server.name, server)
       }
 
-      const connected = results.filter((s) => s.status === "connected").length
-      const failed = results.filter((s) => s.status === "failed").length
-      const disabled = results.filter((s) => s.status === "disabled").length
+      const connected = results.filter((s) => s.status === 'connected').length
+      const failed = results.filter((s) => s.status === 'failed').length
+      const disabled = results.filter((s) => s.status === 'disabled').length
 
       if (entries.length > 0) {
         console.error(
-          `[mcp] Initialized: ${connected} connected, ${failed} failed, ${disabled} disabled`
+          `[mcp] Initialized: ${connected} connected, ${failed} failed, ${disabled} disabled`,
         )
       }
     }
@@ -302,7 +307,7 @@ export namespace Mcp {
      */
     async shutdown(): Promise<void> {
       for (const [name, server] of this.servers) {
-        if (server.status === "connected") {
+        if (server.status === 'connected') {
           try {
             await server.client.close()
             console.error(`[mcp:${name}] Disconnected`)
@@ -337,7 +342,7 @@ export namespace Mcp {
     listTools(): string[] {
       const tools: string[] = []
       for (const [serverName, server] of this.servers) {
-        if (server.status !== "connected") continue
+        if (server.status !== 'connected') continue
         for (const mcpTool of server.tools) {
           tools.push(`${serverName}__${mcpTool.name}`)
         }
@@ -360,31 +365,39 @@ export namespace Mcp {
             })
 
             // Check for MCP-level errors in the result
-            if ("isError" in result && result.isError) {
-              const content = "content" in result && Array.isArray(result.content) ? result.content : []
+            if ('isError' in result && result.isError) {
+              const content =
+                'content' in result && Array.isArray(result.content)
+                  ? result.content
+                  : []
               const errorContent = content
-                .filter((c): c is { type: "text"; text: string } => c.type === "text")
+                .filter(
+                  (c): c is {type: 'text'; text: string} => c.type === 'text',
+                )
                 .map((c) => c.text)
-                .join("\n")
-              return `Error: ${errorContent || "Tool execution failed"}`
+                .join('\n')
+              return `Error: ${errorContent || 'Tool execution failed'}`
             }
 
             // Extract text content from result
-            if ("content" in result && Array.isArray(result.content)) {
+            if ('content' in result && Array.isArray(result.content)) {
               const textParts = result.content
                 .filter(
-                  (c): c is { type: "text"; text: string } => c.type === "text"
+                  (c): c is {type: 'text'; text: string} => c.type === 'text',
                 )
                 .map((c) => c.text)
-              return textParts.join("\n")
+              return textParts.join('\n')
             }
 
             // Fallback to JSON stringification
             return JSON.stringify(result)
           } catch (error) {
             // Connection errors, timeouts, etc. - return error to agent instead of crashing
-            const message = error instanceof Error ? error.message : String(error)
-            console.error(`[mcp:${serverName}] Tool ${mcpTool.name} failed: ${message}`)
+            const message =
+              error instanceof Error ? error.message : String(error)
+            console.error(
+              `[mcp:${serverName}] Tool ${mcpTool.name} failed: ${message}`,
+            )
             return `Error: MCP tool call failed - ${message}. The server may be temporarily unavailable.`
           }
         },
@@ -399,14 +412,14 @@ export namespace Mcp {
       const tools: Record<string, any> = {}
 
       for (const [serverName, server] of this.servers) {
-        if (server.status !== "connected") continue
+        if (server.status !== 'connected') continue
 
         for (const mcpTool of server.tools) {
           const toolName = `${serverName}__${mcpTool.name}`
           tools[toolName] = this.convertMcpTool(
             serverName,
             mcpTool,
-            server.client
+            server.client,
           )
         }
       }

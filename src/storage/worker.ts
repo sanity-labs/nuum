@@ -4,23 +4,25 @@
  * Tracks background worker jobs for compaction, consolidation, etc.
  */
 
-import { eq } from "drizzle-orm"
-import type { DrizzleDB } from "./db"
+import {eq} from 'drizzle-orm'
+import type {DrizzleDB} from './db'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzleDB = any
 
-import { workers, type Worker, type WorkerInsert } from "./schema"
+import {workers, type Worker, type WorkerInsert} from './schema'
 
-export type WorkerType = "temporal-compact" | "ltm-consolidate" | "ltm-reflect"
-export type WorkerStatus = "pending" | "running" | "completed" | "failed"
+export type WorkerType = 'temporal-compact' | 'ltm-consolidate' | 'ltm-reflect'
+export type WorkerStatus = 'pending' | 'running' | 'completed' | 'failed'
 
 export interface WorkerStorage {
   create(worker: WorkerInsert): Promise<void>
   get(id: string): Promise<Worker | null>
   update(
     id: string,
-    updates: Partial<Pick<Worker, "status" | "startedAt" | "completedAt" | "error">>,
+    updates: Partial<
+      Pick<Worker, 'status' | 'startedAt' | 'completedAt' | 'error'>
+    >,
   ): Promise<void>
   getByType(type: WorkerType): Promise<Worker[]>
   getRunning(): Promise<Worker[]>
@@ -31,7 +33,9 @@ export interface WorkerStorage {
   failAllRunning(error: string): Promise<number>
 }
 
-export function createWorkerStorage(db: DrizzleDB | AnyDrizzleDB): WorkerStorage {
+export function createWorkerStorage(
+  db: DrizzleDB | AnyDrizzleDB,
+): WorkerStorage {
   return {
     async create(worker: WorkerInsert): Promise<void> {
       await db.insert(workers).values(worker)
@@ -49,7 +53,9 @@ export function createWorkerStorage(db: DrizzleDB | AnyDrizzleDB): WorkerStorage
 
     async update(
       id: string,
-      updates: Partial<Pick<Worker, "status" | "startedAt" | "completedAt" | "error">>,
+      updates: Partial<
+        Pick<Worker, 'status' | 'startedAt' | 'completedAt' | 'error'>
+      >,
     ): Promise<void> {
       await db.update(workers).set(updates).where(eq(workers.id, id))
     },
@@ -66,38 +72,44 @@ export function createWorkerStorage(db: DrizzleDB | AnyDrizzleDB): WorkerStorage
       return db
         .select()
         .from(workers)
-        .where(eq(workers.status, "running"))
+        .where(eq(workers.status, 'running'))
         .orderBy(workers.id)
     },
 
     async getAll(): Promise<Worker[]> {
-      return db
-        .select()
-        .from(workers)
-        .orderBy(workers.id)
+      return db.select().from(workers).orderBy(workers.id)
     },
 
     async complete(id: string): Promise<void> {
-      await db.update(workers).set({
-        status: "completed",
-        completedAt: new Date().toISOString(),
-      }).where(eq(workers.id, id))
+      await db
+        .update(workers)
+        .set({
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        })
+        .where(eq(workers.id, id))
     },
 
     async fail(id: string, error: string): Promise<void> {
-      await db.update(workers).set({
-        status: "failed",
-        completedAt: new Date().toISOString(),
-        error,
-      }).where(eq(workers.id, id))
+      await db
+        .update(workers)
+        .set({
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          error,
+        })
+        .where(eq(workers.id, id))
     },
 
     async failAllRunning(error: string): Promise<number> {
-      const result = await db.update(workers).set({
-        status: "failed",
-        completedAt: new Date().toISOString(),
-        error,
-      }).where(eq(workers.status, "running"))
+      const result = await db
+        .update(workers)
+        .set({
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          error,
+        })
+        .where(eq(workers.status, 'running'))
       return result.changes
     },
   }

@@ -7,20 +7,20 @@
  * - Commands: /quit, /inspect, /dump, /help
  * - Streaming output with tool progress
  * - Ctrl+C interrupts request, Ctrl+D exits
- * 
+ *
  * Uses Server internally for consistent behavior with stdio mode,
  * including background tasks and alarm polling.
  */
 
-import * as readline from "readline"
-import * as fs from "fs"
-import * as path from "path"
-import * as os from "os"
-import { Server, type ServerOptions } from "../jsonrpc"
-import { runInspect, runDump } from "./inspect"
+import * as readline from 'readline'
+import * as fs from 'fs'
+import * as path from 'path'
+import * as os from 'os'
+import {Server, type ServerOptions} from '../jsonrpc'
+import {runInspect, runDump} from './inspect'
 
-const PROMPT = "miriad-code> "
-const HISTORY_FILE = path.join(os.homedir(), ".miriad-code-history")
+const PROMPT = 'miriad-code> '
+const HISTORY_FILE = path.join(os.homedir(), '.miriad-code-history')
 const MAX_HISTORY = 1000
 
 export interface ReplOptions {
@@ -72,29 +72,31 @@ export class ReplSession {
     }
 
     // Handle Ctrl+C (SIGINT)
-    this.rl.on("SIGINT", () => {
+    this.rl.on('SIGINT', () => {
       if (this.isRunning) {
         // Cancel current request via server
         this.server.interrupt()
-        process.stdout.write("\n^C - Request cancelled\n")
+        process.stdout.write('\n^C - Request cancelled\n')
       } else {
         // Show hint
-        process.stdout.write("\n(Use /quit or Ctrl+D to exit)\n")
+        process.stdout.write('\n(Use /quit or Ctrl+D to exit)\n')
         this.rl?.prompt()
       }
     })
 
     // Handle Ctrl+D (close)
-    this.rl.on("close", () => {
+    this.rl.on('close', () => {
       this.saveHistory()
-      console.log("\nGoodbye!")
-      this.server.shutdown("user exit")
+      console.log('\nGoodbye!')
+      this.server.shutdown('user exit')
     })
 
     // Handle input
-    this.rl.on("line", (line) => {
+    this.rl.on('line', (line) => {
       this.handleLine(line).catch((error) => {
-        console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+        console.error(
+          `Error: ${error instanceof Error ? error.message : String(error)}`,
+        )
         this.rl?.prompt()
       })
     })
@@ -109,8 +111,8 @@ export class ReplSession {
    */
   private printWelcome(): void {
     console.log()
-    console.log("miriad-code interactive mode")
-    console.log("Type /help for commands, /quit to exit")
+    console.log('miriad-code interactive mode')
+    console.log('Type /help for commands, /quit to exit')
     console.log()
   }
 
@@ -128,7 +130,7 @@ export class ReplSession {
     this.addToHistory(trimmed)
 
     // Check for commands
-    if (trimmed.startsWith("/")) {
+    if (trimmed.startsWith('/')) {
       await this.handleCommand(trimmed)
       return
     }
@@ -145,42 +147,46 @@ export class ReplSession {
     const command = parts[0].toLowerCase()
 
     switch (command) {
-      case "quit":
-      case "exit":
-      case "q":
+      case 'quit':
+      case 'exit':
+      case 'q':
         this.saveHistory()
-        console.log("Goodbye!")
-        this.server.shutdown("user exit")
+        console.log('Goodbye!')
+        this.server.shutdown('user exit')
         break
 
-      case "inspect":
+      case 'inspect':
         try {
           await runInspect(this.options.dbPath)
         } catch (error) {
-          console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+          console.error(
+            `Error: ${error instanceof Error ? error.message : String(error)}`,
+          )
         }
         this.rl?.prompt()
         break
 
-      case "dump":
+      case 'dump':
         try {
           await runDump(this.options.dbPath)
         } catch (error) {
-          console.error(`Error: ${error instanceof Error ? error.message : String(error)}`)
+          console.error(
+            `Error: ${error instanceof Error ? error.message : String(error)}`,
+          )
         }
         this.rl?.prompt()
         break
 
-      case "help":
-      case "h":
-      case "?":
+      case 'help':
+      case 'h':
+      case '?':
         this.printHelp()
         this.rl?.prompt()
         break
 
       default:
         console.log(`Unknown command: /${command}`)
-        console.log("Type /help for available commands.")
+        console.log('Type /help for available commands.')
         this.rl?.prompt()
     }
   }
@@ -190,18 +196,18 @@ export class ReplSession {
    */
   private printHelp(): void {
     console.log()
-    console.log("Commands:")
-    console.log("  /help, /h, /?    Show this help")
-    console.log("  /quit, /exit, /q Exit the REPL")
+    console.log('Commands:')
+    console.log('  /help, /h, /?    Show this help')
+    console.log('  /quit, /exit, /q Exit the REPL')
 
-    console.log("  /inspect         Show memory statistics")
-    console.log("  /dump            Show full system prompt")
+    console.log('  /inspect         Show memory statistics')
+    console.log('  /dump            Show full system prompt')
     console.log()
-    console.log("Shortcuts:")
-    console.log("  Ctrl+C           Cancel current request")
-    console.log("  Ctrl+D           Exit")
-    console.log("  Up/Down arrows   Navigate history")
-    console.log("  Ctrl+R           Reverse history search")
+    console.log('Shortcuts:')
+    console.log('  Ctrl+C           Cancel current request')
+    console.log('  Ctrl+D           Exit')
+    console.log('  Up/Down arrows   Navigate history')
+    console.log('  Ctrl+R           Reverse history search')
     console.log()
   }
 
@@ -230,13 +236,20 @@ export class ReplSession {
     const type = msg.type as string
 
     switch (type) {
-      case "assistant": {
-        const assistantMsg = msg.message as { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }
+      case 'assistant': {
+        const assistantMsg = msg.message as {
+          content?: Array<{
+            type: string
+            text?: string
+            name?: string
+            input?: unknown
+          }>
+        }
         if (assistantMsg?.content) {
           for (const block of assistantMsg.content) {
-            if (block.type === "text" && block.text) {
+            if (block.type === 'text' && block.text) {
               process.stdout.write(block.text)
-            } else if (block.type === "tool_use" && block.name) {
+            } else if (block.type === 'tool_use' && block.name) {
               // Show tool call as progress indicator
               const displayName = this.formatToolName(block.name)
               const args = this.formatToolArgs(block.input)
@@ -247,35 +260,38 @@ export class ReplSession {
         break
       }
 
-      case "system": {
+      case 'system': {
         const subtype = msg.subtype as string
         switch (subtype) {
-          case "init":
+          case 'init':
             // Ignore init message in REPL
             break
-          case "tool_result":
+          case 'tool_result':
             // Don't show raw tool results - they're verbose
             break
-          case "error":
-            process.stdout.write(`\n[Error: ${(msg as { message?: string }).message}]\n`)
+          case 'error':
+            process.stdout.write(
+              `\n[Error: ${(msg as {message?: string}).message}]\n`,
+            )
             break
-          case "consolidation": {
-            const changes = ((msg as { entries_created?: number }).entries_created ?? 0) +
-              ((msg as { entries_updated?: number }).entries_updated ?? 0) +
-              ((msg as { entries_archived?: number }).entries_archived ?? 0)
+          case 'consolidation': {
+            const changes =
+              ((msg as {entries_created?: number}).entries_created ?? 0) +
+              ((msg as {entries_updated?: number}).entries_updated ?? 0) +
+              ((msg as {entries_archived?: number}).entries_archived ?? 0)
             if (changes > 0) {
               process.stdout.write(`\n[LTM updated: ${changes} change(s)]\n`)
             }
             break
           }
-          case "interrupted":
+          case 'interrupted':
             // Already handled by SIGINT handler
             break
         }
         break
       }
 
-      case "result": {
+      case 'result': {
         // Turn completed - handled by runPrompt finally block
         break
       }
@@ -287,20 +303,20 @@ export class ReplSession {
    */
   private formatToolName(name: string): string {
     const displayNames: Record<string, string> = {
-      bash: "Running command",
-      read: "Reading",
-      write: "Writing",
-      edit: "Editing",
-      glob: "Searching files",
-      grep: "Searching content",
-      present_set_mission: "Setting mission",
-      present_set_status: "Setting status",
-      present_update_tasks: "Updating tasks",
-      set_alarm: "Setting alarm",
-      list_tasks: "Listing tasks",
-      background_research: "Starting research",
-      background_reflect: "Starting reflection",
-      cancel_task: "Cancelling task",
+      bash: 'Running command',
+      read: 'Reading',
+      write: 'Writing',
+      edit: 'Editing',
+      glob: 'Searching files',
+      grep: 'Searching content',
+      present_set_mission: 'Setting mission',
+      present_set_status: 'Setting status',
+      present_update_tasks: 'Updating tasks',
+      set_alarm: 'Setting alarm',
+      list_tasks: 'Listing tasks',
+      background_research: 'Starting research',
+      background_reflect: 'Starting reflection',
+      cancel_task: 'Cancelling task',
     }
     return displayNames[name] || name
   }
@@ -309,7 +325,7 @@ export class ReplSession {
    * Extract relevant args for display.
    */
   private formatToolArgs(input: unknown): string {
-    if (!input || typeof input !== "object") return ""
+    if (!input || typeof input !== 'object') return ''
     const args = input as Record<string, unknown>
 
     // Show relevant arg based on tool
@@ -318,13 +334,13 @@ export class ReplSession {
     if (args.pattern) return ` ${args.pattern}`
     if (args.command) {
       const cmd = String(args.command)
-      return ` ${cmd.slice(0, 50)}${cmd.length > 50 ? "..." : ""}`
+      return ` ${cmd.slice(0, 50)}${cmd.length > 50 ? '...' : ''}`
     }
     if (args.delay) return ` ${args.delay}`
     if (args.topic) return ` "${String(args.topic).slice(0, 40)}..."`
     if (args.question) return ` "${String(args.question).slice(0, 40)}..."`
 
-    return ""
+    return ''
   }
 
   /**
@@ -333,9 +349,9 @@ export class ReplSession {
   private loadHistory(): void {
     try {
       if (fs.existsSync(HISTORY_FILE)) {
-        const content = fs.readFileSync(HISTORY_FILE, "utf-8")
+        const content = fs.readFileSync(HISTORY_FILE, 'utf-8')
         this.history = content
-          .split("\n")
+          .split('\n')
           .filter((line) => line.trim())
           .slice(-MAX_HISTORY)
       }
@@ -357,7 +373,7 @@ export class ReplSession {
       const allHistory = [...new Set([...rlHistory.reverse(), ...this.history])]
       const trimmed = allHistory.slice(-MAX_HISTORY)
 
-      fs.writeFileSync(HISTORY_FILE, trimmed.join("\n") + "\n")
+      fs.writeFileSync(HISTORY_FILE, trimmed.join('\n') + '\n')
     } catch {
       // Ignore errors - history is optional
     }
@@ -368,7 +384,7 @@ export class ReplSession {
    */
   private addToHistory(line: string): void {
     // Skip commands from history
-    if (line.startsWith("/")) {
+    if (line.startsWith('/')) {
       return
     }
     this.history.push(line)

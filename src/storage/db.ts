@@ -7,7 +7,7 @@
  * Uses Bun's native bun:sqlite driver. Nuum requires Bun runtime.
  */
 
-import * as schema from "./schema"
+import * as schema from './schema'
 
 // Type for unified database interface
 export interface RawDatabase {
@@ -23,9 +23,9 @@ export interface DrizzleDB {
 }
 
 // Verify Bun runtime
-const isBun = typeof globalThis.Bun !== "undefined"
+const isBun = typeof globalThis.Bun !== 'undefined'
 if (!isBun) {
-  throw new Error("Nuum requires Bun runtime. Install Bun: https://bun.sh")
+  throw new Error('Nuum requires Bun runtime. Install Bun: https://bun.sh')
 }
 
 // Schema initialization SQL
@@ -208,7 +208,7 @@ export function createDb(dbPath: string): DrizzleDB {
  * Create an in-memory database for testing.
  */
 export function createInMemoryDb(): DrizzleDB {
-  return createBunDb(":memory:")
+  return createBunDb(':memory:')
 }
 
 /**
@@ -217,22 +217,22 @@ export function createInMemoryDb(): DrizzleDB {
 function createBunDb(dbPath: string): DrizzleDB {
   // Dynamic import for bun:sqlite
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const BunDatabase = require("bun:sqlite").default
+  const BunDatabase = require('bun:sqlite').default
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { drizzle } = require("drizzle-orm/bun-sqlite")
+  const {drizzle} = require('drizzle-orm/bun-sqlite')
 
   const sqlite = new BunDatabase(dbPath)
 
-  if (dbPath !== ":memory:") {
+  if (dbPath !== ':memory:') {
     // Enable WAL mode for concurrent access
-    sqlite.exec("PRAGMA journal_mode=WAL")
+    sqlite.exec('PRAGMA journal_mode=WAL')
     // Wait up to 5s for locks
-    sqlite.exec("PRAGMA busy_timeout=5000")
+    sqlite.exec('PRAGMA busy_timeout=5000')
   }
   // Enable foreign key enforcement
-  sqlite.exec("PRAGMA foreign_keys=ON")
+  sqlite.exec('PRAGMA foreign_keys=ON')
 
-  const db = drizzle(sqlite, { schema })
+  const db = drizzle(sqlite, {schema})
   db._rawDb = sqlite
   return db as DrizzleDB
 }

@@ -5,10 +5,10 @@
  * These are tasks the agent explicitly started and expects results from.
  */
 
-import { eq, and, lt, isNull } from "drizzle-orm"
-import type { DrizzleDB } from "./db"
-import { backgroundTasks, backgroundTaskQueue, alarms } from "./schema"
-import { Identifier } from "../id"
+import {eq, and, lt, isNull} from 'drizzle-orm'
+import type {DrizzleDB} from './db'
+import {backgroundTasks, backgroundTaskQueue, alarms} from './schema'
+import {Identifier} from '../id'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzleDB = any
@@ -18,9 +18,9 @@ type AnyDrizzleDB = any
  */
 export interface BackgroundTask {
   id: string
-  type: "research" | "reflect"
+  type: 'research' | 'reflect'
   description: string
-  status: "running" | "completed" | "failed" | "killed"
+  status: 'running' | 'completed' | 'failed' | 'killed'
   createdAt: string
   completedAt: string | null
   result: unknown | null
@@ -51,7 +51,7 @@ export interface Alarm {
  * Input for creating a background task.
  */
 export interface CreateTaskInput {
-  type: "research" | "reflect"
+  type: 'research' | 'reflect'
   description: string
 }
 
@@ -70,23 +70,26 @@ export interface TasksStorage {
   // Task management
   createTask(input: CreateTaskInput): Promise<string>
   getTask(id: string): Promise<BackgroundTask | null>
-  listTasks(options?: { status?: string; limit?: number }): Promise<BackgroundTask[]>
+  listTasks(options?: {
+    status?: string
+    limit?: number
+  }): Promise<BackgroundTask[]>
   completeTask(id: string, result: unknown): Promise<void>
   failTask(id: string, error: string): Promise<void>
-  
+
   // Startup recovery
   recoverKilledTasks(): Promise<BackgroundTask[]>
-  
+
   // Result queue
   queueResult(taskId: string, content: string): Promise<void>
   drainQueue(): Promise<QueuedTaskResult[]>
   hasQueuedResults(): Promise<boolean>
-  
+
   // Alarms
   createAlarm(input: CreateAlarmInput): Promise<string>
   getDueAlarms(): Promise<Alarm[]>
   markAlarmFired(id: string): Promise<void>
-  listAlarms(options?: { includeFired?: boolean }): Promise<Alarm[]>
+  listAlarms(options?: {includeFired?: boolean}): Promise<Alarm[]>
 }
 
 /**
@@ -99,14 +102,14 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
     // ─────────────────────────────────────────────────────────────
 
     async createTask(input: CreateTaskInput): Promise<string> {
-      const id = Identifier.ascending("bgtask")
+      const id = Identifier.ascending('bgtask')
       const now = new Date().toISOString()
 
       await db.insert(backgroundTasks).values({
         id,
         type: input.type,
         description: input.description,
-        status: "running",
+        status: 'running',
         createdAt: now,
       })
 
@@ -125,9 +128,9 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
       const row = rows[0]
       return {
         id: row.id,
-        type: row.type as "research" | "reflect",
+        type: row.type as 'research' | 'reflect',
         description: row.description,
-        status: row.status as BackgroundTask["status"],
+        status: row.status as BackgroundTask['status'],
         createdAt: row.createdAt,
         completedAt: row.completedAt,
         result: row.result ? JSON.parse(row.result) : null,
@@ -135,7 +138,10 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
       }
     },
 
-    async listTasks(options?: { status?: string; limit?: number }): Promise<BackgroundTask[]> {
+    async listTasks(options?: {
+      status?: string
+      limit?: number
+    }): Promise<BackgroundTask[]> {
       const limit = options?.limit ?? 50
 
       let query = db.select().from(backgroundTasks)
@@ -148,9 +154,9 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
 
       return rows.map((row: typeof backgroundTasks.$inferSelect) => ({
         id: row.id,
-        type: row.type as "research" | "reflect",
+        type: row.type as 'research' | 'reflect',
         description: row.description,
-        status: row.status as BackgroundTask["status"],
+        status: row.status as BackgroundTask['status'],
         createdAt: row.createdAt,
         completedAt: row.completedAt,
         result: row.result ? JSON.parse(row.result) : null,
@@ -164,7 +170,7 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
       await db
         .update(backgroundTasks)
         .set({
-          status: "completed",
+          status: 'completed',
           completedAt: now,
           result: JSON.stringify(result),
         })
@@ -177,7 +183,7 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
       await db
         .update(backgroundTasks)
         .set({
-          status: "failed",
+          status: 'failed',
           completedAt: now,
           error,
         })
@@ -193,7 +199,7 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
       const runningTasks = await db
         .select()
         .from(backgroundTasks)
-        .where(eq(backgroundTasks.status, "running"))
+        .where(eq(backgroundTasks.status, 'running'))
 
       // Mark them as killed
       if (runningTasks.length > 0) {
@@ -201,17 +207,17 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
         await db
           .update(backgroundTasks)
           .set({
-            status: "killed",
+            status: 'killed',
             completedAt: now,
           })
-          .where(eq(backgroundTasks.status, "running"))
+          .where(eq(backgroundTasks.status, 'running'))
       }
 
       return runningTasks.map((row: typeof backgroundTasks.$inferSelect) => ({
         id: row.id,
-        type: row.type as "research" | "reflect",
+        type: row.type as 'research' | 'reflect',
         description: row.description,
-        status: "killed" as const,
+        status: 'killed' as const,
         createdAt: row.createdAt,
         completedAt: row.completedAt,
         result: null,
@@ -224,7 +230,7 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
     // ─────────────────────────────────────────────────────────────
 
     async queueResult(taskId: string, content: string): Promise<void> {
-      const id = Identifier.ascending("bgtask")
+      const id = Identifier.ascending('bgtask')
       const now = new Date().toISOString()
 
       await db.insert(backgroundTaskQueue).values({
@@ -247,7 +253,9 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
       // Delete them
       const ids = rows.map((r: typeof backgroundTaskQueue.$inferSelect) => r.id)
       for (const id of ids) {
-        await db.delete(backgroundTaskQueue).where(eq(backgroundTaskQueue.id, id))
+        await db
+          .delete(backgroundTaskQueue)
+          .where(eq(backgroundTaskQueue.id, id))
       }
 
       return rows.map((row: typeof backgroundTaskQueue.$inferSelect) => ({
@@ -260,7 +268,7 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
 
     async hasQueuedResults(): Promise<boolean> {
       const rows = await db
-        .select({ id: backgroundTaskQueue.id })
+        .select({id: backgroundTaskQueue.id})
         .from(backgroundTaskQueue)
         .limit(1)
 
@@ -272,7 +280,7 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
     // ─────────────────────────────────────────────────────────────
 
     async createAlarm(input: CreateAlarmInput): Promise<string> {
-      const id = Identifier.ascending("bgtask")
+      const id = Identifier.ascending('bgtask')
 
       await db.insert(alarms).values({
         id,
@@ -302,13 +310,10 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
     },
 
     async markAlarmFired(id: string): Promise<void> {
-      await db
-        .update(alarms)
-        .set({ fired: 1 })
-        .where(eq(alarms.id, id))
+      await db.update(alarms).set({fired: 1}).where(eq(alarms.id, id))
     },
 
-    async listAlarms(options?: { includeFired?: boolean }): Promise<Alarm[]> {
+    async listAlarms(options?: {includeFired?: boolean}): Promise<Alarm[]> {
       let query = db.select().from(alarms)
 
       if (!options?.includeFired) {

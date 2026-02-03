@@ -13,15 +13,15 @@
  * - Distillation agent (needs reconstructed temporal view, not raw history)
  */
 
-import type { CoreMessage, CoreTool } from "ai"
-import type { Storage } from "../storage"
-import type { Config } from "../config"
-import { Provider } from "../provider"
-import { Log } from "../util/log"
-import { buildAgentContext } from "../context"
-import { runAgentLoop, stopOnTool } from "../agent/loop"
+import type {CoreMessage, CoreTool} from 'ai'
+import type {Storage} from '../storage'
+import type {Config} from '../config'
+import {Provider} from '../provider'
+import {Log} from '../util/log'
+import {buildAgentContext} from '../context'
+import {runAgentLoop, stopOnTool} from '../agent/loop'
 
-const log = Log.create({ service: "sub-agent" })
+const log = Log.create({service: 'sub-agent'})
 
 /**
  * Configuration for a sub-agent run.
@@ -75,7 +75,7 @@ export interface SubAgentResult<TResult> {
   }
 
   /** How the loop ended */
-  stopReason: "done" | "no_tool_calls" | "max_turns" | "cancelled"
+  stopReason: 'done' | 'no_tool_calls' | 'max_turns' | 'cancelled'
 }
 
 /**
@@ -95,14 +95,14 @@ export async function runSubAgent<TResult>(
     tools,
     finishToolName,
     extractResult,
-    tier = "workhorse",
+    tier = 'workhorse',
     maxTurns = 20,
     maxTokens = 4096,
     temperature = 0,
     onToolResult,
   } = config
 
-  log.info(`starting sub-agent: ${name}`, { maxTurns, tier })
+  log.info(`starting sub-agent: ${name}`, {maxTurns, tier})
 
   // Build agent context (same as main agent for cache efficiency)
   const ctx = await buildAgentContext(storage)
@@ -113,7 +113,7 @@ export async function runSubAgent<TResult>(
   // Initial messages: conversation history + task
   const initialMessages: CoreMessage[] = [
     ...ctx.historyTurns,
-    { role: "user", content: `[SYSTEM TASK]\n\n${taskPrompt}` },
+    {role: 'user', content: `[SYSTEM TASK]\n\n${taskPrompt}`},
   ]
 
   // Run the agent loop
