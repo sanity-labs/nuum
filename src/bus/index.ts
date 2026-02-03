@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/bus/index.ts
  * License: MIT
  *
- * Simplified for miriad-code: removed Instance/Global dependencies,
+ * Simplified for nuum: removed Instance/Global dependencies,
  * standalone event bus implementation.
  */
 

@@ -151,7 +151,7 @@ Nuum has a three-tier memory system that mirrors human cognition.
 │                                                                              │
 │  /identity ─────────────── "Who I am, my nature and relationships"          │
 │  /behavior ─────────────── "How I should operate, user preferences"         │
-│  /miriad-code                                                                │
+│  /nuum                                                                │
 │    ├── /cast-integration ─ "CAST/Miriad integration notes"                  │
 │    ├── /memory                                                               │
 │    │     └── /background-reports-system                                      │

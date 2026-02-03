@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * miriad-code CLI entry point
+ * nuum CLI entry point
  *
- * Phase 1 deliverable: `miriad-code -p "prompt" --verbose`
- * Phase 2.1: `miriad-code --inspect` and `miriad-code --dump`
- * Phase 3a: `miriad-code --stdio` for JSON-RPC mode
+ * Phase 1 deliverable: `nuum -p "prompt" --verbose`
+ * Phase 2.1: `nuum --inspect` and `nuum --dump`
+ * Phase 3a: `nuum --stdio` for JSON-RPC mode
  */
 
 import {parseArgs} from 'util'
@@ -13,6 +13,9 @@ import {runInspect, runDump, runCompact} from './inspect'
 import {runServer} from '../jsonrpc'
 import {runRepl} from './repl'
 import {VERSION_STRING} from '../version'
+import {Log} from '../util/log'
+import {printError, printSimpleError} from './error'
+import {renderRaw} from './renderer'
 
 interface CliOptions {
   prompt: string | undefined
@@ -68,14 +71,14 @@ ${VERSION_STRING}
 A coding agent with persistent memory
 
 Usage:
-  miriad-code -p "prompt"           Run agent with a prompt
-  miriad-code -p "prompt" --verbose Show debug output
-  miriad-code --repl                Start interactive REPL mode
-  miriad-code --stdio               Start protocol server over stdin/stdout
-  miriad-code --inspect             Show memory stats (no LLM call)
-  miriad-code --dump                Show raw system prompt (no LLM call)
-  miriad-code --compact             Force run compaction (distillation)
-  miriad-code --help                Show this help
+  nuum -p "prompt"           Run agent with a prompt
+  nuum -p "prompt" --verbose Show debug output
+  nuum --repl                Start interactive REPL mode
+  nuum --stdio               Start protocol server over stdin/stdout
+  nuum --inspect             Show memory stats (no LLM call)
+  nuum --dump                Show raw system prompt (no LLM call)
+  nuum --compact             Force run compaction (distillation)
+  nuum --help                Show this help
 
 Options:
   -p, --prompt <text>   The prompt to send to the agent
@@ -112,19 +115,24 @@ JSON-RPC Mode (--stdio):
   Methods: run, cancel, status
 
 Examples:
-  miriad-code -p "What files are in src/"
-  miriad-code -p "Refactor the auth module" --verbose
-  miriad-code --repl
-  miriad-code --repl --db ./project.db
-  miriad-code -p "List todos" --format=json
-  miriad-code --inspect --db ./my-agent.db
-  miriad-code --dump
-  miriad-code --stdio --db ./agent.db
+  nuum -p "What files are in src/"
+  nuum -p "Refactor the auth module" --verbose
+  nuum --repl
+  nuum --repl --db ./project.db
+  nuum -p "List todos" --format=json
+  nuum --inspect --db ./my-agent.db
+  nuum --dump
+  nuum --stdio --db ./agent.db
 `)
 }
 
 async function main(): Promise<void> {
   const options = parseCliArgs()
+
+  // Enable verbose logging only when --verbose is passed
+  if (options.verbose) {
+    Log.setLevel('DEBUG')
+  }
 
   if (options.help) {
     printHelp()
@@ -132,7 +140,7 @@ async function main(): Promise<void> {
   }
 
   if (options.version) {
-    console.log(VERSION_STRING)
+    renderRaw(VERSION_STRING + '\n')
     process.exit(0)
   }
 
@@ -142,11 +150,7 @@ async function main(): Promise<void> {
       await runRepl({dbPath: options.db})
       // runRepl keeps running until user quits
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
     return
@@ -158,11 +162,7 @@ async function main(): Promise<void> {
       await runServer({dbPath: options.db})
       // runServer keeps running until stdin closes
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
     return
@@ -174,11 +174,7 @@ async function main(): Promise<void> {
       await runInspect(options.db)
       process.exit(0)
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
   }
@@ -189,11 +185,7 @@ async function main(): Promise<void> {
       await runDump(options.db)
       process.exit(0)
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
   }
@@ -204,21 +196,17 @@ async function main(): Promise<void> {
       await runCompact(options.db)
       process.exit(0)
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error: ${error.message}`)
-      } else {
-        console.error('Unknown error:', error)
-      }
+      printError(error, {verbose: options.verbose})
       process.exit(1)
     }
   }
 
   // Regular prompt mode requires --prompt
   if (!options.prompt) {
-    console.error(
-      'Error: --prompt (-p) is required (or use --repl/--stdio/--inspect/--dump)',
+    printSimpleError(
+      '--prompt (-p) is required (or use --repl/--stdio/--inspect/--dump)',
+      'Run with --help for usage information',
     )
-    console.error('Run with --help for usage information')
     process.exit(1)
   }
 
@@ -230,14 +218,7 @@ async function main(): Promise<void> {
       format: options.format,
     })
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(`Error: ${error.message}`)
-      if (options.verbose && error.stack) {
-        console.error(error.stack)
-      }
-    } else {
-      console.error('Unknown error:', error)
-    }
+    printError(error, {verbose: options.verbose})
     process.exit(1)
   }
 }

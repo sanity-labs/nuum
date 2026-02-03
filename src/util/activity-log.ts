@@ -6,52 +6,13 @@
  * - Worker lifecycle (start, progress, complete)
  * - Agent reasoning and decisions
  *
- * Output goes to stderr, separate from protocol messages on stdout.
+ * All output goes through the renderer for consistent formatting.
  */
 
-// Worker/agent identifiers for attribution
-export type WorkerType =
-  | 'main-agent'
-  | 'ltm-curator'
-  | 'distillation'
-  | 'reflection'
-  | 'research'
-  | 'server'
-  | 'mcp'
+import {render, type WorkerType} from '../cli/renderer'
 
-// Icons for different activity types
-const ICONS = {
-  tool_call: '🔧',
-  tool_result: '✓',
-  tool_error: '✗',
-  search: '🔍',
-  create: '📝',
-  update: '📝',
-  delete: '🗑️',
-  start: '▶',
-  complete: '✓',
-  skip: '⊘',
-  thinking: '💭',
-  info: 'ℹ',
-  warn: '⚠',
-  error: '✗',
-} as const
-
-/**
- * Format a worker tag for consistent attribution.
- */
-function formatWorker(worker: WorkerType): string {
-  return `[${worker}]`
-}
-
-/**
- * Truncate a string smartly - show start and end if too long.
- */
-function truncate(str: string, maxLen: number = 100): string {
-  if (str.length <= maxLen) return str
-  const half = Math.floor((maxLen - 5) / 2)
-  return str.slice(0, half) + ' ... ' + str.slice(-half)
-}
+// Re-export WorkerType for convenience
+export type {WorkerType}
 
 /**
  * Format bytes/lines for display.
@@ -67,31 +28,6 @@ function formatSize(bytes?: number, lines?: number): string {
 }
 
 /**
- * Format tool arguments for display.
- */
-function formatArgs(args: Record<string, unknown>): string {
-  const parts: string[] = []
-  for (const [key, value] of Object.entries(args)) {
-    if (value === undefined || value === null) continue
-    if (typeof value === 'string') {
-      parts.push(`${key}=${truncate(value, 60)}`)
-    } else if (typeof value === 'number' || typeof value === 'boolean') {
-      parts.push(`${key}=${value}`)
-    } else {
-      parts.push(`${key}=${truncate(JSON.stringify(value), 40)}`)
-    }
-  }
-  return parts.join(', ')
-}
-
-/**
- * Write a log line to stderr.
- */
-function write(line: string): void {
-  process.stderr.write(line + '\n')
-}
-
-/**
  * Activity logger for a specific worker.
  */
 export class ActivityLog {
@@ -101,35 +37,48 @@ export class ActivityLog {
    * Log a tool call being made.
    */
   toolCall(name: string, args: Record<string, unknown>): void {
-    const argsStr = formatArgs(args)
-    write(`${formatWorker(this.worker)} ${ICONS.tool_call} ${name}(${argsStr})`)
+    render({
+      type: 'tool_start',
+      worker: this.worker,
+      tool: name,
+      args,
+    })
   }
 
   /**
    * Log a successful tool result.
    */
   toolResult(name: string, summary: string): void {
-    write(
-      `${formatWorker(this.worker)} ${ICONS.tool_result} ${name}: ${summary}`,
-    )
+    render({
+      type: 'tool_result',
+      worker: this.worker,
+      tool: name,
+      summary,
+    })
   }
 
   /**
    * Log a tool error.
    */
   toolError(name: string, error: string): void {
-    write(
-      `${formatWorker(this.worker)} ${ICONS.tool_error} ${name}: ${truncate(error, 100)}`,
-    )
+    render({
+      type: 'tool_error',
+      worker: this.worker,
+      tool: name,
+      error,
+    })
   }
 
   /**
    * Log a file read result.
    */
   fileRead(path: string, lines: number, bytes: number): void {
-    write(
-      `${formatWorker(this.worker)} ${ICONS.tool_result} read: ${formatSize(bytes, lines)}`,
-    )
+    render({
+      type: 'tool_result',
+      worker: this.worker,
+      tool: 'read',
+      summary: formatSize(bytes, lines),
+    })
   }
 
   /**
@@ -138,12 +87,14 @@ export class ActivityLog {
   searchResult(
     type: 'glob' | 'grep' | 'ltm_search',
     count: number,
-    query?: string,
+    _query?: string,
   ): void {
-    const queryStr = query ? ` "${truncate(query, 30)}"` : ''
-    write(
-      `${formatWorker(this.worker)} ${ICONS.search} ${type}${queryStr} → ${count} results`,
-    )
+    render({
+      type: 'tool_result',
+      worker: this.worker,
+      tool: type,
+      summary: `${count} matches`,
+    })
   }
 
   /**
@@ -154,65 +105,96 @@ export class ActivityLog {
     slug: string,
     detail?: string,
   ): void {
-    const icon = op === 'archive' ? ICONS.delete : ICONS.update
-    const detailStr = detail ? ` - ${detail}` : ''
-    write(
-      `${formatWorker(this.worker)} ${icon} ltm_${op}("${slug}")${detailStr}`,
-    )
+    render({
+      type: 'tool_result',
+      worker: this.worker,
+      tool: `ltm_${op}`,
+      summary: `"${slug}"${detail ? ` - ${detail}` : ''}`,
+    })
   }
 
   /**
    * Log worker starting.
    */
   start(description: string, detail?: Record<string, unknown>): void {
-    const detailStr = detail ? ` (${formatArgs(detail)})` : ''
-    write(
-      `${formatWorker(this.worker)} ${ICONS.start} ${description}${detailStr}`,
-    )
+    render({
+      type: 'lifecycle',
+      worker: this.worker,
+      action: 'start',
+      message: description,
+      detail,
+    })
   }
 
   /**
    * Log worker completing successfully.
    */
   complete(summary: string): void {
-    write(`${formatWorker(this.worker)} ${ICONS.complete} ${summary}`)
+    render({
+      type: 'lifecycle',
+      worker: this.worker,
+      action: 'complete',
+      message: summary,
+    })
   }
 
   /**
    * Log worker skipping (nothing to do).
    */
   skip(reason: string): void {
-    write(`${formatWorker(this.worker)} ${ICONS.skip} Skipped: ${reason}`)
+    render({
+      type: 'lifecycle',
+      worker: this.worker,
+      action: 'skip',
+      message: `Skipped: ${reason}`,
+    })
   }
 
   /**
    * Log agent thinking/reasoning.
    */
   thinking(thought: string): void {
-    write(
-      `${formatWorker(this.worker)} ${ICONS.thinking} ${truncate(thought, 150)}`,
-    )
+    render({
+      type: 'thinking',
+      worker: this.worker,
+      message: thought,
+    })
   }
 
   /**
    * Log general info.
    */
   info(message: string): void {
-    write(`${formatWorker(this.worker)} ${ICONS.info} ${message}`)
+    render({
+      type: 'info',
+      worker: this.worker,
+      level: 'info',
+      message,
+    })
   }
 
   /**
    * Log a warning.
    */
   warn(message: string): void {
-    write(`${formatWorker(this.worker)} ${ICONS.warn} ${message}`)
+    render({
+      type: 'info',
+      worker: this.worker,
+      level: 'warn',
+      message,
+    })
   }
 
   /**
    * Log an error.
    */
   error(message: string): void {
-    write(`${formatWorker(this.worker)} ${ICONS.error} ${message}`)
+    render({
+      type: 'info',
+      worker: this.worker,
+      level: 'error',
+      message,
+    })
   }
 
   /**
@@ -220,10 +202,13 @@ export class ActivityLog {
    */
   tokens(before: number, after: number, detail?: string): void {
     const reduction = Math.round((1 - after / before) * 100)
-    const detailStr = detail ? `, ${detail}` : ''
-    write(
-      `${formatWorker(this.worker)} ${ICONS.info} ${before.toLocaleString()} → ${after.toLocaleString()} tokens (${reduction}% reduction${detailStr})`,
-    )
+    const msg = `${before.toLocaleString()} → ${after.toLocaleString()} tokens (${reduction}% reduction${detail ? `, ${detail}` : ''})`
+    render({
+      type: 'info',
+      worker: this.worker,
+      level: 'info',
+      message: msg,
+    })
   }
 }
 

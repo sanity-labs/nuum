@@ -3,7 +3,7 @@
  * Original file: packages/opencode/src/file/ripgrep.ts
  * License: MIT
  *
- * Simplified for miriad-code Phase 1:
+ * Simplified for nuum Phase 1:
  * - Uses system ripgrep (assumes `rg` is in PATH or ~/bin)
  * - Removed auto-download logic (not needed in container environment)
  * - Kept core functionality: files() for glob, filepath() for binary path

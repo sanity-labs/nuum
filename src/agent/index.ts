@@ -1,5 +1,5 @@
 /**
- * Core agent implementation for miriad-code
+ * Core agent implementation for nuum
  *
  * Main agent loop that:
  * 1. Builds the prompt from memory (temporal, present, LTM)
@@ -760,7 +760,7 @@ export async function runAgent(
     })
     throw new Error(
       `Context overflow: ${tokensBefore} tokens exceeds hard limit of ${hardLimit}. ` +
-        `Run 'miriad-code --compact' to reduce context size before continuing.`,
+        `Run 'nuum --compact' to reduce context size before continuing.`,
     )
   }
 
@@ -957,6 +957,11 @@ export async function runAgent(
         return content
       }
       return null
+    },
+
+    // Show "thinking" indicator when processing tool results
+    onThinking: () => {
+      activity.mainAgent.thinking('processing tool results...')
     },
   })
 

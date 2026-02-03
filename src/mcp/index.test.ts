@@ -85,16 +85,16 @@ describe('Mcp', () => {
   })
 
   describe('Config Loading', () => {
-    const configDir = path.join(os.homedir(), '.config', 'miriad')
-    const configPath = path.join(configDir, 'code.json')
+    const configDir = path.join(os.homedir(), '.config', 'nuum')
+    const configPath = path.join(configDir, 'mcp.json')
     let originalEnv: string | undefined
     let hadConfigFile = false
     let originalConfigContent: string | undefined
 
     beforeEach(async () => {
       // Save original env
-      originalEnv = process.env.MIRIAD_MCP_CONFIG
-      delete process.env.MIRIAD_MCP_CONFIG
+      originalEnv = process.env.NUUM_MCP_CONFIG
+      delete process.env.NUUM_MCP_CONFIG
 
       // Check if config file exists and save it
       try {
@@ -108,9 +108,9 @@ describe('Mcp', () => {
     afterEach(async () => {
       // Restore env
       if (originalEnv !== undefined) {
-        process.env.MIRIAD_MCP_CONFIG = originalEnv
+        process.env.NUUM_MCP_CONFIG = originalEnv
       } else {
-        delete process.env.MIRIAD_MCP_CONFIG
+        delete process.env.NUUM_MCP_CONFIG
       }
 
       // Restore config file
@@ -126,7 +126,7 @@ describe('Mcp', () => {
     })
 
     test('loads config from env var', async () => {
-      process.env.MIRIAD_MCP_CONFIG = JSON.stringify({
+      process.env.NUUM_MCP_CONFIG = JSON.stringify({
         mcpServers: {
           test: {command: 'echo', args: ['hello']},
         },
@@ -155,7 +155,7 @@ describe('Mcp', () => {
 
     test('env var takes precedence over file', async () => {
       // Set up both
-      process.env.MIRIAD_MCP_CONFIG = JSON.stringify({
+      process.env.NUUM_MCP_CONFIG = JSON.stringify({
         mcpServers: {
           fromenv: {command: 'env'},
         },
