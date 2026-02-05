@@ -26,7 +26,11 @@ export {
   type ResearchMetadata,
   type ResearchToolContext,
 } from './research'
-export {McpStatusTool, type McpStatusMetadata} from './mcp-status'
+export {
+  SystemStatusTool,
+  McpStatusTool,
+  type SystemStatusMetadata,
+} from './mcp-status'
 export {
   LTMGlobTool,
   LTMSearchTool,

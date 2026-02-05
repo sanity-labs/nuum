@@ -1,59 +1,70 @@
 /**
- * MCP status inspection tool.
+ * System status inspection tool.
  *
- * Allows the agent to see what MCP servers are configured,
- * their connection status, and what tools are available.
+ * Shows runtime information: version, models, MCP servers, and configuration.
+ * Renamed from mcp_status to system_status to reflect broader scope.
  */
 
 import {z} from 'zod'
 import {Tool} from './tool'
 import {Mcp} from '../mcp'
+import {Config} from '../config'
+import {VERSION, GIT_HASH} from '../version'
 
-export interface McpStatusMetadata {
-  serverCount: number
-  connectedCount: number
-  toolCount: number
+export interface SystemStatusMetadata {
+  version: string
+  gitHash: string
+  models: {reasoning: string; workhorse: string; fast: string}
+  mcpServerCount: number
+  mcpConnectedCount: number
+  mcpToolCount: number
 }
 
 const parameters = z.object({})
 
-export const McpStatusTool = Tool.define<typeof parameters, McpStatusMetadata>(
-  'mcp_status',
-  {
-    description: `Inspect MCP (Model Context Protocol) server status.
+export const SystemStatusTool = Tool.define<
+  typeof parameters,
+  SystemStatusMetadata
+>('system_status', {
+  description: `Get system status including version, models, and MCP server connections.
 
 Shows:
-- Configured MCP servers and their connection status
-- Available tools from each connected server
-- Any connection errors
+- Nuum version and git hash
+- Configured models (reasoning, workhorse, fast tiers)
+- MCP server connection status and available tools
 
 Use this when:
+- You want to verify what version of nuum is running
+- You need to check which models are configured
 - A tool you expect isn't available
-- You want to see what MCP capabilities are configured
 - Debugging MCP connection issues`,
-    parameters,
-    async execute(_args, _ctx) {
-      const status = Mcp.getStatus()
-      const toolNames = Mcp.getToolNames()
+  parameters,
+  async execute(_args, _ctx) {
+    const config = Config.get()
+    const mcpStatus = Mcp.getStatus()
+    const mcpToolNames = Mcp.getToolNames()
 
-      let output = '## MCP Server Status\n\n'
+    let output = '## System Status\n\n'
 
-      if (status.length === 0) {
-        output += 'No MCP servers configured.\n'
-        return {
-          output,
-          title: 'MCP Status',
-          metadata: {
-            serverCount: 0,
-            connectedCount: 0,
-            toolCount: 0,
-          },
-        }
-      }
+    // Version info
+    output += `### Version\n`
+    output += `- **nuum** v${VERSION} (${GIT_HASH})\n\n`
 
+    // Model configuration
+    output += `### Models\n`
+    output += `- **Reasoning:** ${config.models.reasoning}\n`
+    output += `- **Workhorse:** ${config.models.workhorse}\n`
+    output += `- **Fast:** ${config.models.fast}\n\n`
+
+    // MCP servers
+    output += `### MCP Servers\n\n`
+
+    if (mcpStatus.length === 0) {
+      output += 'No MCP servers configured.\n'
+    } else {
       let connectedCount = 0
 
-      for (const server of status) {
+      for (const server of mcpStatus) {
         const statusIcon =
           server.status === 'connected'
             ? '✓'
@@ -61,43 +72,55 @@ Use this when:
               ? '⋯'
               : '✗'
 
-        output += `### ${server.name} ${statusIcon}\n`
-        output += `- Status: ${server.status}\n`
+        output += `**${server.name}** ${statusIcon}\n`
 
         if (server.status === 'connected') {
           connectedCount++
-          output += `- Tools: ${server.toolCount}\n`
-
-          // List tools from this server
-          const serverTools = toolNames.filter((t) =>
+          const serverTools = mcpToolNames.filter((t) =>
             t.startsWith(`${server.name}__`),
           )
-          if (serverTools.length > 0) {
-            output += `- Available:\n`
-            for (const tool of serverTools) {
-              const toolName = tool.replace(`${server.name}__`, '')
-              output += `  - ${toolName}\n`
-            }
-          }
+          output += `- ${server.toolCount} tools: ${serverTools.map((t) => t.replace(`${server.name}__`, '')).join(', ')}\n`
         } else if (server.error) {
           output += `- Error: ${server.error}\n`
+        } else {
+          output += `- Status: ${server.status}\n`
         }
 
         output += '\n'
       }
 
+      const totalTools = mcpToolNames.length
       output += `---\n`
-      output += `**Summary:** ${connectedCount}/${status.length} servers connected, ${toolNames.length} tools available\n`
+      output += `**MCP Summary:** ${connectedCount}/${mcpStatus.length} servers connected, ${totalTools} tools available\n`
 
       return {
         output,
-        title: 'MCP Status',
+        title: 'System Status',
         metadata: {
-          serverCount: status.length,
-          connectedCount,
-          toolCount: toolNames.length,
+          version: VERSION,
+          gitHash: GIT_HASH,
+          models: config.models,
+          mcpServerCount: mcpStatus.length,
+          mcpConnectedCount: connectedCount,
+          mcpToolCount: totalTools,
         },
       }
-    },
+    }
+
+    return {
+      output,
+      title: 'System Status',
+      metadata: {
+        version: VERSION,
+        gitHash: GIT_HASH,
+        models: config.models,
+        mcpServerCount: 0,
+        mcpConnectedCount: 0,
+        mcpToolCount: 0,
+      },
+    }
   },
-)
+})
+
+// Keep backward compatibility export name for imports
+export const McpStatusTool = SystemStatusTool

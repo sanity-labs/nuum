@@ -26,7 +26,7 @@ import {
   GrepTool,
   WebSearchTool,
   WebFetchTool,
-  McpStatusTool,
+  SystemStatusTool,
   LTMGlobTool,
   LTMSearchTool,
   LTMReadTool,
@@ -243,12 +243,12 @@ function summarizeToolResult(toolName: string, result: string): string {
     case 'ltm_reparent':
     case 'ltm_rename':
       return result.slice(0, 60)
-    case 'mcp_status': {
+    case 'system_status': {
       const match = result.match(/(\d+)\/(\d+) servers connected, (\d+) tools/)
       if (match) {
         return `${match[1]}/${match[2]} servers, ${match[3]} tools`
       }
-      return 'MCP status retrieved'
+      return 'system status retrieved'
     }
     default:
       // Generic: show truncated result
@@ -514,12 +514,12 @@ function buildTools(
       ),
   })
 
-  tools.mcp_status = tool({
-    description: McpStatusTool.definition.description,
-    parameters: McpStatusTool.definition.parameters,
+  tools.system_status = tool({
+    description: SystemStatusTool.definition.description,
+    parameters: SystemStatusTool.definition.parameters,
     execute: async (args, {toolCallId}) =>
-      safeExecute('mcp_status', () =>
-        McpStatusTool.definition.execute(
+      safeExecute('system_status', () =>
+        SystemStatusTool.definition.execute(
           args,
           factory.createContext(toolCallId),
         ),
