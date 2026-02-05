@@ -274,13 +274,13 @@ describe('message builders', () => {
   test('systemMessage for init (CAST integration)', () => {
     const msg = systemMessage('init', {
       session_id: 'sess_123',
-      model: 'claude-opus-4-5-20251101',
+      model: 'claude-opus-4-6',
       tools: ['read', 'write', 'bash'],
     })
     expect(msg.type).toBe('system')
     expect(msg.subtype).toBe('init')
     expect(msg.session_id).toBe('sess_123')
-    expect(msg.model).toBe('claude-opus-4-5-20251101')
+    expect(msg.model).toBe('claude-opus-4-6')
     expect(msg.tools).toEqual(['read', 'write', 'bash'])
   })
 

@@ -18,7 +18,7 @@ export namespace Config {
     provider: z.string().default('anthropic'),
     models: z.object({
       /** Main agent, LTM reflection - best judgment (Opus 4.5, 200k context) */
-      reasoning: z.string().default('claude-opus-4-5-20251101'),
+      reasoning: z.string().default('claude-opus-4-6'),
       /** Memory management, search - high context (Sonnet 4.5, 1M beta) */
       workhorse: z.string().default('claude-sonnet-4-5-20250929'),
       /** Quick classifications - fast response (Haiku 4.5, 200k context) */
