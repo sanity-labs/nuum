@@ -87,7 +87,7 @@ export const BackgroundReflectTool = Tool.define<
       }
     }
 
-    // Create the task record
+    // Create the task record (storage layer publishes BackgroundTasksChanged event)
     const taskId = await storage.tasks.createTask({
       type: 'reflect',
       description:
@@ -136,7 +136,7 @@ async function runBackgroundReflection(
       `*Reflection used ${result.turnsUsed} turns, ${result.usage.inputTokens} input / ${result.usage.outputTokens} output tokens*`,
     ].join('\n')
 
-    // Mark task as completed
+    // Mark task as completed (storage layer publishes BackgroundTasksChanged event)
     await storage.tasks.completeTask(taskId, {
       answer: result.answer,
       turnsUsed: result.turnsUsed,
@@ -153,7 +153,7 @@ async function runBackgroundReflection(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
 
-    // Mark task as failed
+    // Mark task as failed (storage layer publishes BackgroundTasksChanged event)
     await storage.tasks.failTask(taskId, errorMsg)
 
     // Queue the error for delivery

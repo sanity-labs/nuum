@@ -9,6 +9,8 @@ import {eq, and, lt, isNull} from 'drizzle-orm'
 import type {DrizzleDB} from './db'
 import {backgroundTasks, backgroundTaskQueue, alarms} from './schema'
 import {Identifier} from '../id'
+import {Bus} from '../bus'
+import {Events} from '../bus/events'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzleDB = any
@@ -113,6 +115,12 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
         createdAt: now,
       })
 
+      // Notify that tasks changed
+      await Bus.publish(Events.BackgroundTasksChanged, {
+        reason: 'task_created',
+        taskId: id,
+      })
+
       return id
     },
 
@@ -175,6 +183,12 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
           result: JSON.stringify(result),
         })
         .where(eq(backgroundTasks.id, id))
+
+      // Notify that tasks changed
+      await Bus.publish(Events.BackgroundTasksChanged, {
+        reason: 'task_completed',
+        taskId: id,
+      })
     },
 
     async failTask(id: string, error: string): Promise<void> {
@@ -188,6 +202,12 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
           error,
         })
         .where(eq(backgroundTasks.id, id))
+
+      // Notify that tasks changed
+      await Bus.publish(Events.BackgroundTasksChanged, {
+        reason: 'task_failed',
+        taskId: id,
+      })
     },
 
     // ─────────────────────────────────────────────────────────────
@@ -289,6 +309,12 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
         fired: 0,
       })
 
+      // Notify that tasks changed
+      await Bus.publish(Events.BackgroundTasksChanged, {
+        reason: 'alarm_created',
+        taskId: id,
+      })
+
       return id
     },
 
@@ -311,6 +337,12 @@ export function createTasksStorage(db: DrizzleDB | AnyDrizzleDB): TasksStorage {
 
     async markAlarmFired(id: string): Promise<void> {
       await db.update(alarms).set({fired: 1}).where(eq(alarms.id, id))
+
+      // Notify that tasks changed
+      await Bus.publish(Events.BackgroundTasksChanged, {
+        reason: 'alarm_fired',
+        taskId: id,
+      })
     },
 
     async listAlarms(options?: {includeFired?: boolean}): Promise<Alarm[]> {

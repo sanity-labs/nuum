@@ -88,7 +88,7 @@ export const BackgroundResearchTool = Tool.define<
       }
     }
 
-    // Create the task record
+    // Create the task record (storage layer publishes BackgroundTasksChanged event)
     const taskId = await storage.tasks.createTask({
       type: 'research',
       description: topic.slice(0, 100) + (topic.length > 100 ? '...' : ''),
@@ -147,7 +147,7 @@ async function runBackgroundResearch(
       .filter(Boolean)
       .join('\n')
 
-    // Mark task as completed
+    // Mark task as completed (storage layer publishes BackgroundTasksChanged event)
     await storage.tasks.completeTask(taskId, {
       report: result.report,
       entriesCreated: result.entriesCreated,
@@ -168,7 +168,7 @@ async function runBackgroundResearch(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
 
-    // Mark task as failed
+    // Mark task as failed (storage layer publishes BackgroundTasksChanged event)
     await storage.tasks.failTask(taskId, errorMsg)
 
     // Queue the error for delivery

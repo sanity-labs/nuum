@@ -93,6 +93,36 @@ Subtypes:
 - `error`: Turn failed with error
 - `cancelled`: Turn was interrupted
 
+### Turn Accepted
+
+Emitted immediately when a message is received and processing begins:
+
+```json
+{"type":"system","subtype":"turn_accepted","session_id":"nuum_01JD...","timestamp":"2026-02-05T15:30:00.000Z"}
+```
+
+This allows UIs to show a "thinking..." state before the first assistant output arrives.
+
+### Tasks Snapshot
+
+Emitted whenever background tasks or alarms change:
+
+```json
+{"type":"system","subtype":"tasks","tasks":[
+  {"id":"bgtask_01JD...","type":"research","description":"How does Stripe work?","status":"running","createdAt":"2026-02-05T15:00:00Z"},
+  {"id":"bgtask_01JE...","type":"alarm","description":"Check deployment","status":"pending","firesAt":"2026-02-05T16:00:00Z"}
+],"session_id":"nuum_01JD..."}
+```
+
+Task types: `research`, `reflect`, `alarm`
+Task statuses: `running` (for tasks), `pending` (for alarms)
+
+This is emitted on:
+- Task created (`background_research`, `background_reflect`)
+- Task completed or failed
+- Alarm created (`set_alarm`)
+- Alarm fired
+
 ### System Messages
 
 Various events and metadata:

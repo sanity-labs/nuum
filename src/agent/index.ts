@@ -699,36 +699,10 @@ export {
   buildAgentContext,
 } from '../context'
 
-/**
- * Initialize MCP servers from config.
- * Only reinitializes if config has changed.
- * Returns true if initialization was performed.
- */
-export async function initializeMcp(): Promise<boolean> {
-  try {
-    const didInitialize = await Mcp.initialize()
-    if (didInitialize) {
-      const status = Mcp.getStatus()
-      if (status.length > 0) {
-        log.info('MCP servers connected', {
-          servers: status.map((s) => `${s.name} (${s.toolCount} tools)`),
-        })
-      }
-    }
-    return didInitialize
-  } catch (error) {
-    log.error('Failed to initialize MCP', {error})
-    return false
-  }
-}
+// Note: MCP initialization and shutdown are handled by the Server layer.
+// See src/jsonrpc/index.ts - Server.start() initializes MCP, and
+// reinitializeMcpWithOverride() handles per-message config updates.
 
-/**
- * Disconnect from all MCP servers.
- * Call this on shutdown.
- */
-export async function shutdownMcp(): Promise<void> {
-  await Mcp.shutdown()
-}
 /**
  * Run the main agent loop.
  */
@@ -739,8 +713,10 @@ export async function runAgent(
   const {storage, onEvent, abortSignal, onBeforeTurn} = options
   const sessionId = Identifier.ascending('session')
 
-  // Initialize MCP servers (loads config and connects)
-  await initializeMcp()
+  // Note: MCP initialization is handled by the Server layer, not here.
+  // The Server calls Mcp.initialize() at startup and reinitializeMcpWithOverride()
+  // when messages include mcp_servers config. Calling initializeMcp() here would
+  // override the merged config with base config, causing unnecessary reconnections.
 
   // Surface any pending background reports (LTM curator, distillation)
   // This makes the memory system visible to the agent

@@ -80,7 +80,7 @@ export const CancelTaskTool = Tool.define<
       }
     }
 
-    // Mark as failed with cancellation message
+    // Mark as failed with cancellation message (storage layer publishes BackgroundTasksChanged event)
     await tasksStorage.failTask(taskId, 'Cancelled by user')
 
     return {
