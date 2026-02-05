@@ -11,6 +11,7 @@ import {
   assistantText,
   assistantToolUse,
   toolResult,
+  userToolResult,
   resultMessage,
   systemMessage,
   type UserMessage,
@@ -228,6 +229,31 @@ describe('message builders', () => {
     expect(block.is_error).toBe(true)
   })
 
+  test('userToolResult creates SDK-compatible user message with tool_result', () => {
+    const msg = userToolResult('call_123', 'file contents', 'sess_456')
+    expect(msg.type).toBe('user')
+    expect(msg.message.role).toBe('user')
+    expect(msg.message.content).toEqual([
+      {
+        type: 'tool_result',
+        tool_use_id: 'call_123',
+        content: 'file contents',
+        is_error: undefined,
+      },
+    ])
+    expect(msg.session_id).toBe('sess_456')
+  })
+
+  test('userToolResult with error flag', () => {
+    const msg = userToolResult('call_123', 'error message', 'sess_456', true)
+    expect(msg.message.content[0].is_error).toBe(true)
+  })
+
+  test('userToolResult without session_id', () => {
+    const msg = userToolResult('call_123', 'content')
+    expect(msg.session_id).toBeUndefined()
+  })
+
   test('resultMessage creates success result', () => {
     const msg = resultMessage('sess_123', 'success', 1000, 5, {
       result: 'Done!',
@@ -244,11 +270,17 @@ describe('message builders', () => {
     expect(msg.usage).toEqual({input_tokens: 100, output_tokens: 50})
   })
 
-  test('resultMessage creates error result', () => {
-    const msg = resultMessage('sess_123', 'error', 500, 2, {
+  test('resultMessage creates error result with SDK subtype', () => {
+    const msg = resultMessage('sess_123', 'error_during_execution', 500, 2, {
       result: 'Something broke',
     })
-    expect(msg.subtype).toBe('error')
+    expect(msg.subtype).toBe('error_during_execution')
+    expect(msg.is_error).toBe(true)
+  })
+
+  test('resultMessage creates max_turns error result', () => {
+    const msg = resultMessage('sess_123', 'error_max_turns', 500, 10)
+    expect(msg.subtype).toBe('error_max_turns')
     expect(msg.is_error).toBe(true)
   })
 

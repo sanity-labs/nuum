@@ -899,8 +899,7 @@ export async function runAgent(
       }
       onEvent?.({
         type: 'tool_result',
-        content:
-          toolResult.slice(0, 200) + (toolResult.length > 200 ? '...' : ''),
+        content: toolResult,
         toolCallId,
       })
     },

@@ -74,10 +74,10 @@ With tool use:
 
 ### Tool Result
 
-Emitted after each tool execution:
+Emitted after each tool execution as a user message (matching Claude SDK format):
 
 ```json
-{"type":"system","subtype":"tool_result","tool_result":{"type":"tool_result","tool_use_id":"call_123","content":"file contents here"}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_123","content":"file contents here"}]},"session_id":"nuum_01JD..."}
 ```
 
 ### Result Message
@@ -153,7 +153,7 @@ Messages sent while a turn is running are queued and injected at the next opport
 ```
 → {"type":"user","message":{"role":"user","content":"Read /tmp/test.txt"}}
 ← {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll read that file."},{"type":"tool_use","id":"call_1","name":"read","input":{"filePath":"/tmp/test.txt"}}],"model":"claude-sonnet-4-5-20250929"},"session_id":"nuum_01JD..."}
-← {"type":"system","subtype":"tool_result","tool_result":{"type":"tool_result","tool_use_id":"call_1","content":"Hello world!"}}
+← {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"Hello world!"}]},"session_id":"nuum_01JD..."}
 ← {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The file contains: Hello world!"}],"model":"claude-sonnet-4-5-20250929"},"session_id":"nuum_01JD..."}
 ← {"type":"result","subtype":"success","duration_ms":2500,"is_error":false,"num_turns":1,"session_id":"nuum_01JD...","result":"The file contains: Hello world!"}
 ```

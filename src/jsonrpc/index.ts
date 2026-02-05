@@ -21,7 +21,7 @@ import {
   getPromptFromUserMessage,
   assistantText,
   assistantToolUse,
-  toolResult,
+  userToolResult,
   resultMessage,
   systemMessage,
   type OutputMessage,
@@ -493,7 +493,7 @@ export class Server {
       this.send(
         resultMessage(
           sessionId,
-          'error',
+          'error_during_execution',
           Date.now() - (this.currentTurn?.startTime ?? Date.now()),
           this.currentTurn?.numTurns ?? 0,
           {
@@ -587,10 +587,7 @@ export class Server {
         if (event.toolCallId) {
           this.currentTurn.numTurns++
           this.send(
-            systemMessage('tool_result', {
-              tool_result: toolResult(event.toolCallId, event.content),
-              session_id: sessionId,
-            }),
+            userToolResult(event.toolCallId, event.content, sessionId),
           )
         }
         break

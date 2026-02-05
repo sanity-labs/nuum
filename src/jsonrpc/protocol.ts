@@ -122,9 +122,32 @@ export interface AssistantMessage {
   session_id?: string
 }
 
+/**
+ * User message output — used for tool_result blocks.
+ * Claude SDK emits tool results as user messages with content blocks.
+ */
+export interface UserOutputMessage {
+  type: 'user'
+  message: {
+    role: 'user'
+    content: ToolResultBlock[]
+  }
+  session_id?: string
+}
+
+/**
+ * SDK-compatible result subtypes.
+ * Success uses 'success', errors use specific SDK error subtypes.
+ */
+export type ResultSubtype =
+  | 'success'
+  | 'error_during_execution'
+  | 'error_max_turns'
+  | 'cancelled'
+
 export interface ResultMessage {
   type: 'result'
-  subtype: 'success' | 'error' | 'cancelled'
+  subtype: ResultSubtype
   duration_ms: number
   is_error: boolean
   num_turns: number
@@ -143,7 +166,11 @@ export interface SystemMessage {
   [key: string]: unknown
 }
 
-export type OutputMessage = AssistantMessage | ResultMessage | SystemMessage
+export type OutputMessage =
+  | AssistantMessage
+  | UserOutputMessage
+  | ResultMessage
+  | SystemMessage
 
 // =============================================================================
 // Message Builders
@@ -192,9 +219,29 @@ export function toolResult(
   }
 }
 
+/**
+ * Build a user message containing tool_result blocks.
+ * This matches Claude SDK format where tool results are user messages.
+ */
+export function userToolResult(
+  toolUseId: string,
+  content: string,
+  sessionId?: string,
+  isError = false,
+): UserOutputMessage {
+  return {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: [toolResult(toolUseId, content, isError)],
+    },
+    session_id: sessionId,
+  }
+}
+
 export function resultMessage(
   sessionId: string,
-  subtype: 'success' | 'error' | 'cancelled',
+  subtype: ResultSubtype,
   durationMs: number,
   numTurns: number,
   options: {result?: string; inputTokens?: number; outputTokens?: number} = {},
@@ -203,7 +250,7 @@ export function resultMessage(
     type: 'result',
     subtype,
     duration_ms: durationMs,
-    is_error: subtype === 'error',
+    is_error: subtype !== 'success' && subtype !== 'cancelled',
     num_turns: numTurns,
     session_id: sessionId,
     result: options.result,
