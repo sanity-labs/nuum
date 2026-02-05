@@ -169,4 +169,23 @@ export namespace Events {
       field: z.enum(['mission', 'status', 'tasks']),
     }),
   )
+
+  // ─────────────────────────────────────────────────────────────────
+  // Background tasks events
+  // ─────────────────────────────────────────────────────────────────
+
+  export const BackgroundTasksChanged = BusEvent.define(
+    'background.tasks.changed',
+    z.object({
+      reason: z.enum([
+        'task_created',
+        'task_completed',
+        'task_failed',
+        'task_cancelled',
+        'alarm_created',
+        'alarm_fired',
+      ]),
+      taskId: z.string().optional(),
+    }),
+  )
 }

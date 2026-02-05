@@ -116,7 +116,7 @@ export const SetAlarmTool = Tool.define<typeof parameters, SetAlarmMetadata>(
       // Calculate when the alarm should fire
       const firesAt = new Date(Date.now() + delayMs).toISOString()
 
-      // Create the alarm
+      // Create the alarm (storage layer publishes BackgroundTasksChanged event)
       const alarmId = await tasksStorage.createAlarm({
         firesAt,
         note,

@@ -33,6 +33,8 @@ import {Config} from '../config'
 import {Mcp} from '../mcp'
 import {Identifier} from '../id'
 import {setEnvironment} from '../context/environment'
+import {Bus} from '../bus'
+import {Events} from '../bus/events'
 
 // Get the model ID for the reasoning tier (main agent)
 function getModelId(): string {
@@ -124,6 +126,13 @@ export class Server {
         log.error('error checking alarms', {error})
       })
     }, 1000)
+
+    // Subscribe to background task changes to emit snapshots
+    Bus.subscribe(Events.BackgroundTasksChanged, () => {
+      this.emitTasksSnapshot().catch((error) => {
+        log.error('error emitting tasks snapshot', {error})
+      })
+    })
 
     log.info('server started', {
       dbPath: this.options.dbPath,
@@ -308,6 +317,7 @@ export class Server {
 
         // Mark alarms as fired and queue results
         for (const alarm of dueAlarms) {
+          // markAlarmFired publishes BackgroundTasksChanged event
           await this.storage.tasks.markAlarmFired(alarm.id)
 
           // Queue to conscious queue
@@ -377,6 +387,14 @@ export class Server {
       )
       return
     }
+
+    // Emit turn_accepted immediately so UI can show "thinking..." state
+    this.send(
+      systemMessage('turn_accepted', {
+        session_id: this.sessionId,
+        timestamp: new Date().toISOString(),
+      }),
+    )
 
     // Process this message
     await this.processTurn(userMessage)
@@ -632,6 +650,55 @@ export class Server {
 
   private send(message: OutputMessage): void {
     this.outputHandler(message)
+  }
+
+  /**
+   * Emit the current state of all background tasks and alarms.
+   * Called whenever the task list changes so clients can update their UI.
+   */
+  async emitTasksSnapshot(): Promise<void> {
+    // Get running tasks
+    const tasks = await this.storage.tasks.listTasks({status: 'running'})
+
+    // Get pending alarms (not yet fired)
+    const alarms = await this.storage.tasks.listAlarms({includeFired: false})
+
+    // Combine into a unified list
+    const items: Array<{
+      id: string
+      type: 'research' | 'reflect' | 'alarm'
+      description: string
+      status: 'running' | 'pending'
+      createdAt?: string
+      firesAt?: string
+    }> = []
+
+    for (const task of tasks) {
+      items.push({
+        id: task.id,
+        type: task.type,
+        description: task.description,
+        status: 'running',
+        createdAt: task.createdAt,
+      })
+    }
+
+    for (const alarm of alarms) {
+      items.push({
+        id: alarm.id,
+        type: 'alarm',
+        description: alarm.note,
+        status: 'pending',
+        firesAt: alarm.firesAt,
+      })
+    }
+
+    this.send(
+      systemMessage('tasks', {
+        tasks: items,
+        session_id: this.sessionId,
+      }),
+    )
   }
 }
 
