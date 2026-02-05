@@ -237,7 +237,7 @@ Reflection searches the full conversation history (via FTS5 full-text search) an
 ANTHROPIC_API_KEY=your-key-here
 
 # Optional (defaults shown)
-AGENT_MODEL_REASONING=claude-opus-4-5-20251101
+AGENT_MODEL_REASONING=claude-opus-4-6
 AGENT_MODEL_WORKHORSE=claude-sonnet-4-5-20250929
 AGENT_MODEL_FAST=claude-haiku-4-5-20251001
 AGENT_DB=./agent.db
