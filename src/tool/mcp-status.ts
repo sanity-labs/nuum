@@ -68,18 +68,30 @@ Use this when:
         const statusIcon =
           server.status === 'connected'
             ? '✓'
-            : server.status === 'connecting'
-              ? '⋯'
-              : '✗'
+            : server.status === 'degraded'
+              ? '⚠'
+              : server.status === 'connecting'
+                ? '⋯'
+                : '✗'
 
         output += `**${server.name}** ${statusIcon}\n`
 
-        if (server.status === 'connected') {
+        if (
+          server.status === 'connected' ||
+          server.status === 'degraded'
+        ) {
           connectedCount++
           const serverTools = mcpToolNames.filter((t) =>
             t.startsWith(`${server.name}__`),
           )
-          output += `- ${server.toolCount} tools: ${serverTools.map((t) => t.replace(`${server.name}__`, '')).join(', ')}\n`
+          if (server.status === 'degraded') {
+            output += `- ${server.activeToolCount}/${server.toolCount} tools active: ${serverTools.map((t) => t.replace(`${server.name}__`, '')).join(', ')}\n`
+            for (const issue of server.issues) {
+              output += `  - ⚠ Skipped "${issue.tool}": ${issue.message}\n`
+            }
+          } else {
+            output += `- ${server.toolCount} tools: ${serverTools.map((t) => t.replace(`${server.name}__`, '')).join(', ')}\n`
+          }
         } else if (server.error) {
           output += `- Error: ${server.error}\n`
         } else {

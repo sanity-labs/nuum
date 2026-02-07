@@ -189,6 +189,86 @@ describe('Mcp', () => {
     })
   })
 
+  describe('Tool Name Validation', () => {
+    test('accepts valid tool names', () => {
+      expect(Mcp.validateToolName('browser-mcp', 'screenshot')).toBeNull()
+      expect(Mcp.validateToolName('my_server', 'my_tool')).toBeNull()
+      expect(Mcp.validateToolName('server1', 'tool-name')).toBeNull()
+      expect(Mcp.validateToolName('s', 'a')).toBeNull()
+    })
+
+    test('accepts names with all valid character types', () => {
+      // letters, numbers, underscores, hyphens
+      expect(
+        Mcp.validateToolName('abc-123', 'DEF_456'),
+      ).toBeNull()
+    })
+
+    test('rejects tool names with dots', () => {
+      const issue = Mcp.validateToolName('imagegen', 'generate.image')
+      expect(issue).not.toBeNull()
+      expect(issue!.type).toBe('invalid_tool_name')
+      expect(issue!.tool).toBe('generate.image')
+      expect(issue!.effectiveName).toBe('imagegen__generate.image')
+      expect(issue!.message).toContain('"."')
+    })
+
+    test('rejects tool names with spaces', () => {
+      const issue = Mcp.validateToolName('server', 'my tool')
+      expect(issue).not.toBeNull()
+      expect(issue!.message).toContain('" "')
+    })
+
+    test('rejects tool names with slashes', () => {
+      const issue = Mcp.validateToolName('server', 'path/to/tool')
+      expect(issue).not.toBeNull()
+      expect(issue!.message).toContain('"/"')
+    })
+
+    test('rejects tool names with @ symbol', () => {
+      const issue = Mcp.validateToolName('@fastmcp-me', 'tool')
+      expect(issue).not.toBeNull()
+      expect(issue!.message).toContain('"@"')
+    })
+
+    test('rejects effective names exceeding 64 characters', () => {
+      const longName = 'a'.repeat(60) // server__<60 chars> = 70 chars > 64
+      const issue = Mcp.validateToolName('server', longName)
+      expect(issue).not.toBeNull()
+      expect(issue!.message).toContain('exceeds 64 character limit')
+    })
+
+    test('accepts effective names at exactly 64 characters', () => {
+      // "sv__" = 4 chars, so tool name can be 60 chars
+      const toolName = 'a'.repeat(60)
+      const issue = Mcp.validateToolName('sv', toolName)
+      expect(issue).toBeNull()
+      expect(`sv__${toolName}`.length).toBe(64)
+    })
+
+    test('rejects effective names at 65 characters', () => {
+      const toolName = 'a'.repeat(61)
+      const issue = Mcp.validateToolName('sv', toolName)
+      expect(issue).not.toBeNull()
+      expect(`sv__${toolName}`.length).toBe(65)
+    })
+
+    test('reports multiple invalid characters', () => {
+      const issue = Mcp.validateToolName('server', 'a.b/c')
+      expect(issue).not.toBeNull()
+      expect(issue!.message).toContain('"."')
+      expect(issue!.message).toContain('"/"')
+    })
+
+    test('server name with invalid chars causes all tools to fail', () => {
+      // If server name has dots, every tool from it will fail
+      const issue = Mcp.validateToolName('my.server', 'valid_tool')
+      expect(issue).not.toBeNull()
+      expect(issue!.effectiveName).toBe('my.server__valid_tool')
+      expect(issue!.message).toContain('"."')
+    })
+  })
+
   describe('Manager', () => {
     test('creates manager instance', () => {
       const manager = new Mcp.Manager()

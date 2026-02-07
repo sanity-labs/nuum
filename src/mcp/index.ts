@@ -130,6 +130,60 @@ export namespace Mcp {
   }
 
   // ============================================================================
+  // Tool Name Validation
+  // ============================================================================
+
+  /**
+   * Anthropic API tool name pattern: letters, numbers, underscores, hyphens, 1-64 chars.
+   * MCP spec has no constraints (just `type: string`), but the Anthropic API rejects
+   * tool names that don't match this pattern, killing the entire turn.
+   */
+  const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/
+
+  export interface McpServerIssue {
+    type: 'invalid_tool_name'
+    tool: string // raw MCP tool name
+    effectiveName: string // prefixed name that failed validation
+    message: string
+  }
+
+  /**
+   * Validate a tool name against the Anthropic API pattern.
+   * Returns null if valid, or an McpServerIssue if invalid.
+   */
+  export function validateToolName(
+    serverName: string,
+    mcpToolName: string,
+  ): McpServerIssue | null {
+    const effectiveName = `${serverName}__${mcpToolName}`
+    if (TOOL_NAME_PATTERN.test(effectiveName)) {
+      return null
+    }
+
+    // Find the first invalid character for a helpful message
+    const invalidChars = effectiveName
+      .split('')
+      .filter((c) => !/[a-zA-Z0-9_-]/.test(c))
+    const uniqueInvalid = Array.from(new Set(invalidChars))
+
+    let message: string
+    if (effectiveName.length > 64) {
+      message = `Effective tool name "${effectiveName}" exceeds 64 character limit (${effectiveName.length} chars)`
+    } else if (effectiveName.length === 0) {
+      message = `Tool name is empty`
+    } else {
+      message = `Effective tool name "${effectiveName}" contains invalid character(s): ${uniqueInvalid.map((c) => `"${c}"`).join(', ')} (allowed: a-z, A-Z, 0-9, _, -)`
+    }
+
+    return {
+      type: 'invalid_tool_name',
+      tool: mcpToolName,
+      effectiveName,
+      message,
+    }
+  }
+
+  // ============================================================================
   // Manager Class
   // ============================================================================
 
@@ -137,8 +191,10 @@ export namespace Mcp {
     name: string
     config: ServerConfig
     client: Client
-    tools: Tool[]
-    status: 'connected' | 'failed' | 'disabled'
+    tools: Tool[] // only valid tools
+    allToolCount: number // total tools reported by server (before validation)
+    issues: McpServerIssue[]
+    status: 'connected' | 'degraded' | 'failed' | 'disabled'
     error?: string
     sessionId?: string // For HTTP transports - enables session resumption
   }
@@ -191,6 +247,8 @@ export namespace Mcp {
           config,
           client: null as unknown as Client,
           tools: [],
+          allToolCount: 0,
+          issues: [],
           status: 'disabled',
         }
       }
@@ -224,7 +282,23 @@ export namespace Mcp {
 
         // Get available tools
         const toolsResult = await client.listTools()
-        const tools = toolsResult.tools
+        const allTools = toolsResult.tools
+
+        // Validate tool names against Anthropic API pattern
+        const validTools: Tool[] = []
+        const issues: McpServerIssue[] = []
+
+        for (const mcpTool of allTools) {
+          const issue = validateToolName(name, mcpTool.name)
+          if (issue) {
+            issues.push(issue)
+            console.error(
+              `[mcp:${name}] Skipping tool "${mcpTool.name}": ${issue.message}`,
+            )
+          } else {
+            validTools.push(mcpTool)
+          }
+        }
 
         // Capture session ID for HTTP transports (enables session resumption)
         let sessionId: string | undefined
@@ -232,25 +306,29 @@ export namespace Mcp {
           sessionId = transport.sessionId
           if (sessionId) {
             console.error(
-              `[mcp:${name}] Connected with session ${sessionId.slice(0, 8)}..., ${tools.length} tools available`,
+              `[mcp:${name}] Connected with session ${sessionId.slice(0, 8)}..., ${validTools.length}/${allTools.length} tools available`,
             )
           } else {
             console.error(
-              `[mcp:${name}] Connected (no session), ${tools.length} tools available`,
+              `[mcp:${name}] Connected (no session), ${validTools.length}/${allTools.length} tools available`,
             )
           }
         } else {
           console.error(
-            `[mcp:${name}] Connected, ${tools.length} tools available`,
+            `[mcp:${name}] Connected, ${validTools.length}/${allTools.length} tools available`,
           )
         }
+
+        const status = issues.length > 0 ? 'degraded' : 'connected'
 
         return {
           name,
           config,
           client,
-          tools,
-          status: 'connected',
+          tools: validTools,
+          allToolCount: allTools.length,
+          issues,
+          status,
           sessionId,
         }
       } catch (e) {
@@ -261,6 +339,8 @@ export namespace Mcp {
           config,
           client,
           tools: [],
+          allToolCount: 0,
+          issues: [],
           status: 'failed',
           error,
         }
@@ -292,12 +372,17 @@ export namespace Mcp {
       }
 
       const connected = results.filter((s) => s.status === 'connected').length
+      const degraded = results.filter((s) => s.status === 'degraded').length
       const failed = results.filter((s) => s.status === 'failed').length
       const disabled = results.filter((s) => s.status === 'disabled').length
 
       if (entries.length > 0) {
+        const parts = [`${connected} connected`]
+        if (degraded > 0) parts.push(`${degraded} degraded`)
+        if (failed > 0) parts.push(`${failed} failed`)
+        if (disabled > 0) parts.push(`${disabled} disabled`)
         console.error(
-          `[mcp] Initialized: ${connected} connected, ${failed} failed, ${disabled} disabled`,
+          `[mcp] Initialized: ${parts.join(', ')}`,
         )
       }
     }
@@ -326,23 +411,28 @@ export namespace Mcp {
       name: string
       status: string
       toolCount: number
+      activeToolCount: number
+      issues: McpServerIssue[]
       error?: string
     }> {
       return Array.from(this.servers.values()).map((s) => ({
         name: s.name,
         status: s.status,
-        toolCount: s.tools.length,
+        toolCount: s.allToolCount,
+        activeToolCount: s.tools.length,
+        issues: s.issues,
         error: s.error,
       }))
     }
 
     /**
-     * List all available tool names
+     * List all available tool names (only valid tools from connected/degraded servers)
      */
     listTools(): string[] {
       const tools: string[] = []
       for (const [serverName, server] of this.servers) {
-        if (server.status !== 'connected') continue
+        if (server.status !== 'connected' && server.status !== 'degraded')
+          continue
         for (const mcpTool of server.tools) {
           tools.push(`${serverName}__${mcpTool.name}`)
         }
@@ -407,12 +497,14 @@ export namespace Mcp {
     /**
      * Get all MCP tools as AI SDK tools
      * Tool names are prefixed with server name: "serverName__toolName"
+     * Only includes valid tools from connected/degraded servers.
      */
     getTools() {
       const tools: Record<string, any> = {}
 
       for (const [serverName, server] of this.servers) {
-        if (server.status !== 'connected') continue
+        if (server.status !== 'connected' && server.status !== 'degraded')
+          continue
 
         for (const mcpTool of server.tools) {
           const toolName = `${serverName}__${mcpTool.name}`
