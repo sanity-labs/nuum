@@ -275,7 +275,7 @@ export async function runConsolidation(
     },
     tier: 'workhorse',
     maxTurns: MAX_CONSOLIDATION_TURNS,
-    maxTokens: 2048,
+    // maxTokens: omitted — auto-detected from model
     onToolResult: (toolCallId) => {
       const toolResult = getLastResult(toolCallId)
       if (!toolResult) return

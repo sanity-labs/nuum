@@ -86,7 +86,7 @@ export async function runReflection(
     extractResult: getAnswer,
     tier: 'workhorse',
     maxTurns: 20,
-    maxTokens: 4096,
+    // maxTokens: omitted — auto-detected from model
   })
 
   const answer = result.result ?? 'Unable to find relevant information.'

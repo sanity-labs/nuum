@@ -144,7 +144,7 @@ export async function runResearch(
       },
       tier: 'workhorse',
       maxTurns: MAX_RESEARCH_TURNS,
-      maxTokens: 8192,
+      // maxTokens: omitted — auto-detected from model
       onToolResult: (toolCallId) => {
         const toolResult = getLastResult(toolCallId)
         if (!toolResult) return

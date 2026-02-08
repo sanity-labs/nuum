@@ -317,7 +317,7 @@ export async function runCompaction(
         systemPrompt: ctx.systemPrompt,
         initialMessages,
         tools,
-        maxTokens: 4096,
+        // maxTokens: omitted — auto-detected from model
         temperature: 0,
         maxTurns: 5,
         isDone: stopOnTool('finish_distillation'),

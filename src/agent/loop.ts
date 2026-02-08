@@ -30,6 +30,39 @@ import {Log} from '../util/log'
 const log = Log.create({service: 'agent-loop'})
 
 /**
+ * Maximum output tokens by model.
+ *
+ * The Anthropic API accepts maxTokens up to the model's output limit.
+ * We use the model's full capacity — maxTokens is a ceiling, not a target.
+ * The model naturally stops when done; this just prevents artificial truncation
+ * that causes incomplete tool calls (e.g., write calls missing content).
+ */
+const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
+  // Opus 4.6 - 128K output
+  'claude-opus-4-6': 128_000,
+  'claude-opus-4-6-20250918': 128_000,
+  // Sonnet 4.5 - 64K output
+  'claude-sonnet-4-5-20250929': 64_000,
+  'claude-sonnet-4-5': 64_000,
+  // Haiku 4.5 - 64K output
+  'claude-haiku-4-5-20251001': 64_000,
+  'claude-haiku-4-5': 64_000,
+  // Older models
+  'claude-3-5-sonnet-20241022': 8_192,
+  'claude-3-5-haiku-20241022': 8_192,
+}
+
+/** Default for unknown models — generous but safe */
+const DEFAULT_MAX_OUTPUT_TOKENS = 16_384
+
+/**
+ * Get the maximum output tokens for a model.
+ */
+export function getMaxOutputTokens(modelId: string): number {
+  return MODEL_MAX_OUTPUT_TOKENS[modelId] ?? DEFAULT_MAX_OUTPUT_TOKENS
+}
+
+/**
  * Add Anthropic cache control markers to messages.
  *
  * Follows OpenCode's caching strategy:
@@ -182,7 +215,7 @@ export async function runAgentLoop(
     systemPrompt,
     initialMessages,
     tools,
-    maxTokens = 4096,
+    maxTokens: maxTokensOverride,
     temperature,
     maxTurns,
     abortSignal,
@@ -193,6 +226,16 @@ export async function runAgentLoop(
     onBeforeTurn,
     onThinking,
   } = options
+
+  // Resolve maxTokens: explicit override > model-aware default > fallback
+  const maxTokens =
+    maxTokensOverride ?? getMaxOutputTokens(model.modelId)
+
+  log.info('agent loop starting', {
+    model: model.modelId,
+    maxTokens,
+    maxTurns,
+  })
 
   // Check if already cancelled
   if (abortSignal?.aborted) {
@@ -279,6 +322,15 @@ export async function runAgentLoop(
       })
     }
 
+    // Detect output truncation
+    if (response.finishReason === 'length') {
+      log.warn('output truncated - model hit maxTokens limit', {
+        maxTokens,
+        outputTokens: response.usage.completionTokens,
+        hasToolCalls: (response.toolCalls?.length ?? 0) > 0,
+      })
+    }
+
     // Handle text response
     if (response.text) {
       finalText = response.text
@@ -354,6 +406,23 @@ export async function runAgentLoop(
         content: toolResultParts,
       }
       messages.push(toolMsg)
+
+      // If output was truncated and we had invalid tool calls, tell the model why
+      if (response.finishReason === 'length') {
+        const hadInvalidCalls = toolCallInfos.some(
+          (tc) => tc.toolName === '__invalid_tool_call__',
+        )
+        if (hadInvalidCalls) {
+          messages.push({
+            role: 'user',
+            content:
+              '[SYSTEM: Your previous output was truncated because it exceeded the output token limit. ' +
+              'Your tool call was incomplete — parameters were cut off mid-generation. ' +
+              'To fix this: break large content into multiple smaller write calls, or use bash to write incrementally. ' +
+              'Do NOT retry the same large tool call — it will truncate again.]',
+          })
+        }
+      }
 
       // Check if we should stop
       if (isDone(toolCallInfos)) {

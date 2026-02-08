@@ -811,7 +811,7 @@ export async function runAgent(
     systemPrompt: ctx.systemPrompt,
     initialMessages,
     tools,
-    maxTokens: 8192,
+    // maxTokens: omitted — auto-detected from model (e.g., 128K for Opus 4.6)
     maxTurns: MAX_TURNS,
     abortSignal,
 

@@ -97,7 +97,7 @@ export async function runSubAgent<TResult>(
     extractResult,
     tier = 'workhorse',
     maxTurns = 20,
-    maxTokens = 4096,
+    maxTokens,
     temperature = 0,
     onToolResult,
   } = config
