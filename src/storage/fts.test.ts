@@ -257,5 +257,111 @@ describe('Full-Text Search', () => {
       expect(results[0].snippet).toContain('>>>')
       expect(results[0].snippet).toContain('<<<')
     })
+
+    test('searchFTS returns path in results', async () => {
+      await storage.ltm.create({
+        slug: 'parent',
+        parentSlug: null,
+        title: 'Parent',
+        body: 'Parent entry about protocols',
+        createdBy: 'main',
+      })
+      await storage.ltm.create({
+        slug: 'child',
+        parentSlug: 'parent',
+        title: 'Child',
+        body: 'Child entry about protocols',
+        createdBy: 'main',
+      })
+
+      const results = await storage.ltm.searchFTS('protocols')
+
+      expect(results.length).toBe(2)
+      const paths = results.map(r => r.path).sort()
+      expect(paths).toContain('/parent')
+      expect(paths).toContain('/parent/child')
+    })
+
+    test('searchFTS with multi-word query finds entries matching ANY word', async () => {
+      await storage.ltm.create({
+        slug: 'mcp-entry',
+        parentSlug: null,
+        title: 'MCP Implementation',
+        body: 'Model Context Protocol server connections and tool management.',
+        createdBy: 'main',
+      })
+      await storage.ltm.create({
+        slug: 'validation-entry',
+        parentSlug: null,
+        title: 'Input Validation',
+        body: 'Schema validation for tool parameters using Zod.',
+        createdBy: 'main',
+      })
+      await storage.ltm.create({
+        slug: 'unrelated',
+        parentSlug: null,
+        title: 'Database Layer',
+        body: 'SQLite storage with Drizzle ORM.',
+        createdBy: 'main',
+      })
+
+      // Multi-word query should find entries matching ANY of the words
+      const results = await storage.ltm.searchFTS('MCP tool validation')
+
+      // Should find both MCP and validation entries (they match at least one word)
+      expect(results.length).toBeGreaterThanOrEqual(2)
+      const slugs = results.map(r => r.slug)
+      expect(slugs).toContain('mcp-entry')
+      expect(slugs).toContain('validation-entry')
+      // Unrelated entry should NOT appear
+      expect(slugs).not.toContain('unrelated')
+    })
+
+    test('searchFTS with pathPrefix filters to subtree', async () => {
+      await storage.ltm.create({
+        slug: 'projects',
+        parentSlug: null,
+        title: 'Projects',
+        body: 'All projects',
+        createdBy: 'main',
+      })
+      await storage.ltm.create({
+        slug: 'auth-service',
+        parentSlug: 'projects',
+        title: 'Auth Service',
+        body: 'Authentication patterns and token management.',
+        createdBy: 'main',
+      })
+      await storage.ltm.create({
+        slug: 'auth-docs',
+        parentSlug: null,
+        title: 'Auth Docs',
+        body: 'Authentication documentation and guides.',
+        createdBy: 'main',
+      })
+
+      // Search for "authentication" under /projects only
+      const results = await storage.ltm.searchFTS('authentication', {
+        pathPrefix: '/projects',
+      })
+
+      expect(results.length).toBe(1)
+      expect(results[0].slug).toBe('auth-service')
+    })
+
+    test('searchFTS respects limit option', async () => {
+      for (let i = 0; i < 5; i++) {
+        await storage.ltm.create({
+          slug: `entry-${i}`,
+          parentSlug: null,
+          title: `Entry ${i}`,
+          body: `This entry discusses protocol design patterns.`,
+          createdBy: 'main',
+        })
+      }
+
+      const results = await storage.ltm.searchFTS('protocol', { limit: 3 })
+      expect(results.length).toBe(3)
+    })
   })
 })

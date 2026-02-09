@@ -226,15 +226,17 @@ Returns: [{ slug, title, path, snippet }, ...] ranked by relevance`,
     const {ltm} = ctx.extra as unknown as LTMToolContext
     const {query, path, limit} = args
 
-    const results = await ltm.search(query, path)
-    const limited = results.slice(0, limit ?? 10)
+    const results = await ltm.searchFTS(query, {
+      limit: limit ?? 10,
+      pathPrefix: path,
+    })
 
     ctx.metadata({
       title: `ltm_search("${query}")`,
       metadata: {operation: 'search'},
     })
 
-    if (limited.length === 0) {
+    if (results.length === 0) {
       return {
         title: `ltm_search("${query}")`,
         metadata: {operation: 'search'},
@@ -242,12 +244,11 @@ Returns: [{ slug, title, path, snippet }, ...] ranked by relevance`,
       }
     }
 
-    const formatted = limited.map((r) => ({
-      slug: r.entry.slug,
-      title: r.entry.title,
-      path: r.entry.path,
-      snippet:
-        r.entry.body.slice(0, 150) + (r.entry.body.length > 150 ? '...' : ''),
+    const formatted = results.map((r) => ({
+      slug: r.slug,
+      title: r.title,
+      path: r.path,
+      snippet: r.snippet,
     }))
 
     return {

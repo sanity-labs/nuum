@@ -48,6 +48,7 @@ export interface LTMSearchResult {
 export interface LTMFTSSearchResult {
   slug: string
   title: string
+  path: string // Materialized path
   snippet: string // Highlighted snippet around match
   rank: number // FTS5 relevance rank (lower is better)
 }
@@ -87,7 +88,7 @@ export interface LTMStorage {
   glob(pattern: string, maxDepth?: number): Promise<LTMEntry[]>
   search(query: string, pathPrefix?: string): Promise<LTMSearchResult[]>
   /** Full-text search using FTS5 with snippet extraction */
-  searchFTS(query: string, limit?: number): Promise<LTMFTSSearchResult[]>
+  searchFTS(query: string, options?: { limit?: number, pathPrefix?: string }): Promise<LTMFTSSearchResult[]>
   getChildren(parentSlug: string | null): Promise<LTMEntry[]>
 }
 
@@ -611,8 +612,9 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
 
     async searchFTS(
       query: string,
-      limit: number = 20,
+      options: { limit?: number, pathPrefix?: string } = {},
     ): Promise<LTMFTSSearchResult[]> {
+      const { limit = 20, pathPrefix } = options
       // Use FTS5 MATCH with snippet() for highlighted excerpts
       //
       // Split query into words and join with OR for flexible matching
@@ -628,24 +630,36 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
         return []
       }
 
+      // Join to main table for path and archived_at filtering
+      const pathFilter = pathPrefix
+        ? `AND e.path LIKE ? || '%'`
+        : ''
+      const params: unknown[] = pathPrefix
+        ? [words, pathPrefix, limit]
+        : [words, limit]
+
       const results = (await db._rawDb
         .prepare(
           `
         SELECT 
-          slug,
-          title,
+          fts.slug,
+          fts.title,
+          e.path,
           snippet(ltm_entries_fts, 2, '>>>', '<<<', '...', 32) as snippet,
-          rank
-        FROM ltm_entries_fts
+          fts.rank
+        FROM ltm_entries_fts fts
+        JOIN ltm_entries e ON e.slug = fts.slug
         WHERE ltm_entries_fts MATCH ?
-          AND slug IN (SELECT slug FROM ltm_entries WHERE archived_at IS NULL)
-        ORDER BY rank
+          AND e.archived_at IS NULL
+          ${pathFilter}
+        ORDER BY fts.rank
         LIMIT ?
       `,
         )
-        .all(words, limit)) as Array<{
+        .all(...params)) as Array<{
         slug: string
         title: string
+        path: string
         snippet: string
         rank: number
       }>
@@ -653,6 +667,7 @@ export function createLTMStorage(db: DrizzleDB | AnyDrizzleDB): LTMStorage {
       return results.map((r) => ({
         slug: r.slug,
         title: r.title,
+        path: r.path,
         snippet: r.snippet,
         rank: r.rank,
       }))
