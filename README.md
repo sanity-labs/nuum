@@ -33,6 +33,7 @@ That's it. Start chatting. Your agent remembers everything.
 
 ```bash
 nuum -p "What files are in src/"     # Single prompt
+nuum --mcp                            # Run as an MCP server
 nuum --inspect                        # View memory stats
 nuum --db ./project.db --repl         # Custom database
 ```
@@ -72,6 +73,63 @@ Or pass via protocol when embedding:
 ```
 
 MCP tools appear alongside built-in tools. The agent discovers and uses them automatically.
+
+---
+
+## MCP Server Mode
+
+The `--mcp` flag starts nuum as an MCP server, allowing other tools (Claude Code, Codex, etc.) to interact with persistent nuum instances. Each instance gets its own SQLite database with full persistent memory.
+
+Agent databases live in `.nuum/agents/<name>.db` relative to the working directory.
+
+### Setup
+
+```bash
+# Add to Claude Code
+claude mcp add nuum -- nuum --mcp
+
+# Or from source during development
+claude mcp add nuum -- bun run /path/to/nuum/dist/index.js --mcp
+```
+
+For other MCP clients:
+
+```json
+{
+  "mcpServers": {
+    "nuum": {
+      "command": "nuum",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_agents` | List all agents with name, mission, status, and timestamps |
+| `create_agent` | Create a new agent with optional system prompt |
+| `send_message` | Send a message to an agent (with optional `create_if_missing`) |
+
+Each agent is a persistent conversation — just call `send_message` with the same agent name to continue where you left off.
+
+### Example
+
+```
+# Create a specialized agent
+create_agent(name: "reviewer", system_prompt: "You are a code review specialist")
+
+# Send it a prompt
+send_message(agent: "reviewer", prompt: "Review this function for bugs: ...")
+
+# Continue the conversation (agent remembers everything)
+send_message(agent: "reviewer", prompt: "What about error handling?")
+
+# Or create-on-first-use
+send_message(agent: "helper", prompt: "Hello!", create_if_missing: true)
+```
 
 ---
 

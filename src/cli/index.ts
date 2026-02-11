@@ -28,6 +28,7 @@ interface CliOptions {
   dump: boolean
   compact: boolean
   stdio: boolean
+  mcp: boolean
   repl: boolean
 }
 
@@ -44,6 +45,7 @@ function parseCliArgs(): CliOptions {
       dump: {type: 'boolean', default: false},
       compact: {type: 'boolean', default: false},
       stdio: {type: 'boolean', default: false},
+      mcp: {type: 'boolean', default: false},
       repl: {type: 'boolean', default: false},
     },
     allowPositionals: false,
@@ -60,6 +62,7 @@ function parseCliArgs(): CliOptions {
     dump: values.dump ?? false,
     compact: values.compact ?? false,
     stdio: values.stdio ?? false,
+    mcp: values.mcp ?? false,
     repl: values.repl ?? false,
   }
 }
@@ -75,6 +78,7 @@ Usage:
   nuum -p "prompt" --verbose Show debug output
   nuum --repl                Start interactive REPL mode
   nuum --stdio               Start protocol server over stdin/stdout
+  nuum --mcp                 Start MCP server over stdin/stdout
   nuum --inspect             Show memory stats (no LLM call)
   nuum --dump                Show raw system prompt (no LLM call)
   nuum --compact             Force run compaction (distillation)
@@ -85,6 +89,7 @@ Options:
   -v, --verbose         Show memory state, token usage, and execution trace
       --repl            Start interactive REPL with readline support
       --stdio           Start Claude Code SDK protocol server on stdin/stdout
+      --mcp             Start as an MCP server
       --inspect         Show memory statistics: temporal, present, LTM
       --dump            Dump the full system prompt that would be sent to LLM
       --compact         Force run compaction to reduce effective view size
@@ -161,6 +166,18 @@ async function main(): Promise<void> {
     try {
       await runServer({dbPath: options.db})
       // runServer keeps running until stdin closes
+    } catch (error) {
+      printError(error, {verbose: options.verbose})
+      process.exit(1)
+    }
+    return
+  }
+
+  // Handle --mcp (MCP server mode)
+  if (options.mcp) {
+    try {
+      const {runMcpServer} = await import('../mcp-server')
+      await runMcpServer()
     } catch (error) {
       printError(error, {verbose: options.verbose})
       process.exit(1)
