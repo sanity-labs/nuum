@@ -424,6 +424,107 @@ describe('Mcp', () => {
     })
   })
 
+  describe('Non-blocking init', () => {
+    afterEach(async () => {
+      await Mcp.shutdown()
+    })
+
+    test('servers start in connecting state', async () => {
+      await Mcp.shutdown()
+      const manager = new Mcp.Manager()
+
+      // Use a server that will take time to connect (will fail, but starts as connecting)
+      // We need to check state BEFORE ready() resolves
+      const config: Mcp.ConfigType = {
+        mcpServers: {
+          'slow-server': {command: 'sleep', args: ['10'], timeout: 100},
+        },
+      }
+
+      await manager.initialize(config)
+
+      // Server should be registered immediately
+      const status = manager.getStatus()
+      expect(status.length).toBe(1)
+      expect(status[0].name).toBe('slow-server')
+      // It's either 'connecting' (if still in progress) or 'failed' (if already timed out)
+      expect(['connecting', 'failed']).toContain(status[0].status)
+
+      // Clean up
+      await manager.ready()
+      await manager.shutdown()
+    })
+
+    test('getConnectingServerForTool returns server name for connecting server', async () => {
+      const manager = new Mcp.Manager()
+
+      // Use a slow command that will stay in connecting state briefly
+      // The 2s timeout means it'll fail after 2s, but we check immediately
+      const config: Mcp.ConfigType = {
+        mcpServers: {
+          'linear-mcp': {command: 'sleep', args: ['10'], timeout: 2000},
+        },
+      }
+
+      await manager.initialize(config)
+
+      // Should detect that linear-mcp is still connecting (checked immediately after init)
+      const result = manager.getConnectingServerForTool('linear-mcp__list_issues')
+      expect(result).toBe('linear-mcp')
+
+      // Non-existent server should return null
+      const result2 = manager.getConnectingServerForTool('other__tool')
+      expect(result2).toBeNull()
+
+      // Tool without __ separator should return null
+      const result3 = manager.getConnectingServerForTool('plain_tool')
+      expect(result3).toBeNull()
+
+      // Clean up
+      await manager.shutdown()
+    })
+
+    test('getFailedServerForTool returns error for failed server', async () => {
+      const manager = new Mcp.Manager()
+
+      const config: Mcp.ConfigType = {
+        mcpServers: {
+          'broken': {command: 'nonexistent-command-xyz', args: [], timeout: 100},
+        },
+      }
+
+      await manager.initialize(config)
+      await manager.ready() // Wait for it to fail
+
+      const result = manager.getFailedServerForTool('broken__some_tool')
+      expect(result).not.toBeNull()
+      expect(result!.serverName).toBe('broken')
+      expect(result!.error).toBeTruthy()
+
+      await manager.shutdown()
+    })
+
+    test('disabled servers are not in connecting state', async () => {
+      const manager = new Mcp.Manager()
+
+      const config: Mcp.ConfigType = {
+        mcpServers: {
+          'disabled-server': {command: 'echo', args: [], disabled: true},
+        },
+      }
+
+      await manager.initialize(config)
+
+      const status = manager.getStatus()
+      expect(status[0].status).toBe('disabled')
+
+      const result = manager.getConnectingServerForTool('disabled-server__tool')
+      expect(result).toBeNull()
+
+      await manager.shutdown()
+    })
+  })
+
   describe('Config Merging', () => {
     // These tests verify the merging behavior used by the server
     // when message config overrides base config

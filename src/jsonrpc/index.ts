@@ -93,7 +93,7 @@ export class Server {
     // Get or create session ID (persisted in database)
     this.sessionId = await this.storage.session.getId()
 
-    // Initialize MCP servers
+    // Initialize MCP servers (non-blocking — servers connect in background)
     await Mcp.initialize()
     const mcpTools = Mcp.getToolNames()
 

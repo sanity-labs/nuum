@@ -194,13 +194,15 @@ export namespace Mcp {
     tools: Tool[] // only valid tools
     allToolCount: number // total tools reported by server (before validation)
     issues: McpServerIssue[]
-    status: 'connected' | 'degraded' | 'failed' | 'disabled'
+    status: 'connecting' | 'connected' | 'degraded' | 'failed' | 'disabled'
     error?: string
     sessionId?: string // For HTTP transports - enables session resumption
   }
 
   export class Manager {
     private servers: Map<string, ConnectedServer> = new Map()
+    private _readyPromise: Promise<void> | null = null
+    private _shutdownRequested = false
 
     /**
      * Create transport for a server config
@@ -348,7 +350,10 @@ export namespace Mcp {
     }
 
     /**
-     * Initialize all MCP servers from config
+     * Initialize all MCP servers from config.
+     * Non-blocking: registers servers as 'connecting' immediately,
+     * then connects in the background. Use ready() to wait for all
+     * connections to settle.
      */
     async initialize(config?: ConfigType): Promise<void> {
       const mcpConfig = config ?? (await loadConfig())
@@ -358,41 +363,108 @@ export namespace Mcp {
 
       if (!mcpConfig.mcpServers) return
 
-      // Connect to all servers in parallel
       const entries = Object.entries(mcpConfig.mcpServers)
-      const results = await Promise.all(
-        entries.map(([name, serverConfig]) =>
-          this.connectServer(name, serverConfig),
-        ),
-      )
 
-      // Store connected servers
-      for (const server of results) {
-        this.servers.set(server.name, server)
+      // Register all servers as 'connecting' immediately (disabled servers get their final status)
+      for (const [name, serverConfig] of entries) {
+        if (serverConfig.disabled) {
+          this.servers.set(name, {
+            name,
+            config: serverConfig,
+            client: null as unknown as Client,
+            tools: [],
+            allToolCount: 0,
+            issues: [],
+            status: 'disabled',
+          })
+        } else {
+          this.servers.set(name, {
+            name,
+            config: serverConfig,
+            client: null as unknown as Client,
+            tools: [],
+            allToolCount: 0,
+            issues: [],
+            status: 'connecting',
+          })
+        }
       }
 
-      const connected = results.filter((s) => s.status === 'connected').length
-      const degraded = results.filter((s) => s.status === 'degraded').length
-      const failed = results.filter((s) => s.status === 'failed').length
-      const disabled = results.filter((s) => s.status === 'disabled').length
+      // Connect all servers in parallel in the background
+      this._shutdownRequested = false
+      this._readyPromise = this.connectAllServers(entries)
+    }
+
+    /**
+     * Connect all servers and update their status as they complete.
+     */
+    private async connectAllServers(
+      entries: [string, ServerConfig][],
+    ): Promise<void> {
+      const nonDisabled = entries.filter(([, config]) => !config.disabled)
+
+      // Connect in parallel, updating each server as it completes
+      await Promise.allSettled(
+        nonDisabled.map(async ([name, serverConfig]) => {
+          const result = await this.connectServer(name, serverConfig)
+          // If shutdown was requested while connecting, close immediately
+          if (this._shutdownRequested) {
+            if (result.status === 'connected' || result.status === 'degraded') {
+              try { await result.client.close() } catch {}
+            }
+            return
+          }
+          // Update the server entry in-place as soon as it connects
+          this.servers.set(name, result)
+          const icon = result.status === 'connected' ? '✅' :
+            result.status === 'degraded' ? '⚠️' : '❌'
+          console.error(
+            `[mcp:${name}] ${icon} ${result.status === 'connected' || result.status === 'degraded'
+              ? `Connected (${result.tools.length}/${result.allToolCount} tools)`
+              : `Failed: ${result.error}`}`,
+          )
+        }),
+      )
+
+      if (this._shutdownRequested) return
+
+      // Log summary
+      const allServers = Array.from(this.servers.values())
+      const connected = allServers.filter((s) => s.status === 'connected').length
+      const degraded = allServers.filter((s) => s.status === 'degraded').length
+      const failed = allServers.filter((s) => s.status === 'failed').length
+      const disabled = allServers.filter((s) => s.status === 'disabled').length
 
       if (entries.length > 0) {
         const parts = [`${connected} connected`]
         if (degraded > 0) parts.push(`${degraded} degraded`)
         if (failed > 0) parts.push(`${failed} failed`)
         if (disabled > 0) parts.push(`${disabled} disabled`)
-        console.error(
-          `[mcp] Initialized: ${parts.join(', ')}`,
-        )
+        console.error(`[mcp] All settled: ${parts.join(', ')}`)
       }
     }
 
     /**
-     * Shutdown all MCP connections
+     * Wait for all MCP servers to finish connecting (or fail).
+     * Use this when you need to ensure all servers are settled before proceeding.
+     */
+    async ready(): Promise<void> {
+      if (this._readyPromise) {
+        await this._readyPromise
+      }
+    }
+
+    /**
+     * Shutdown all MCP connections.
+     * Signals background connections to abort and closes established connections.
      */
     async shutdown(): Promise<void> {
+      // Signal background connections to abort
+      this._shutdownRequested = true
+
+      // Close any already-connected servers
       for (const [name, server] of this.servers) {
-        if (server.status === 'connected') {
+        if (server.status === 'connected' || server.status === 'degraded') {
           try {
             await server.client.close()
             console.error(`[mcp:${name}] Disconnected`)
@@ -402,6 +474,12 @@ export namespace Mcp {
         }
       }
       this.servers.clear()
+
+      // Wait for background connections to finish (they'll see _shutdownRequested and clean up)
+      if (this._readyPromise) {
+        await this._readyPromise.catch(() => {})
+        this._readyPromise = null
+      }
     }
 
     /**
@@ -438,6 +516,37 @@ export namespace Mcp {
         }
       }
       return tools
+    }
+
+    /**
+     * Check if a tool name belongs to a server that's still connecting.
+     * Returns the server name if so, null otherwise.
+     */
+    getConnectingServerForTool(toolName: string): string | null {
+      // Tool names are formatted as "serverName__toolName"
+      const sep = toolName.indexOf('__')
+      if (sep === -1) return null
+      const serverName = toolName.slice(0, sep)
+      const server = this.servers.get(serverName)
+      if (server && server.status === 'connecting') {
+        return serverName
+      }
+      return null
+    }
+
+    /**
+     * Check if a tool name belongs to a server that failed to connect.
+     * Returns the error message if so, null otherwise.
+     */
+    getFailedServerForTool(toolName: string): { serverName: string, error: string } | null {
+      const sep = toolName.indexOf('__')
+      if (sep === -1) return null
+      const serverName = toolName.slice(0, sep)
+      const server = this.servers.get(serverName)
+      if (server && server.status === 'failed') {
+        return { serverName, error: server.error ?? 'Unknown error' }
+      }
+      return null
     }
 
     /**
@@ -569,6 +678,15 @@ export namespace Mcp {
     await getManager().initialize(mcpConfig)
     lastConfigHash = configHash
     return true
+  }
+
+  /**
+   * Wait for all MCP servers to finish connecting (or fail).
+   */
+  export async function ready(): Promise<void> {
+    if (manager) {
+      await manager.ready()
+    }
   }
 
   /**

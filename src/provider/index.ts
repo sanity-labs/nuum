@@ -19,6 +19,7 @@ import {
   type GenerateTextResult,
   type ToolSet,
 } from 'ai'
+import {Mcp} from '../mcp/index.js'
 import {z} from 'zod'
 import {Config} from '../config'
 import {Log} from '../util/log'
@@ -130,6 +131,9 @@ Please check the tool's parameter schema and try again with correct arguments.`
    * When the model makes a tool call with invalid arguments, instead of crashing
    * the turn, we redirect to __invalid_tool_call__ which returns the error as
    * a tool result. The model sees what it tried to do and can retry.
+   *
+   * Also provides context-aware errors for MCP servers that are still connecting
+   * or have failed, so the agent knows to wait or adjust strategy.
    */
   function createToolCallRepairFunction<TOOLS extends ToolSet>() {
     return async ({
@@ -141,7 +145,21 @@ Please check the tool's parameter schema and try again with correct arguments.`
       parameterSchema: (options: {toolName: string}) => unknown
       error: NoSuchToolError | InvalidToolArgumentsError
     }) => {
-      const errorMessage = error.message || String(error)
+      let errorMessage = error.message || String(error)
+
+      // Check if this is a NoSuchToolError for an MCP server that's still connecting or failed
+      if (error instanceof NoSuchToolError) {
+        const manager = Mcp.getManager()
+        const connectingServer = manager.getConnectingServerForTool(toolCall.toolName)
+        if (connectingServer) {
+          errorMessage = `MCP server "${connectingServer}" is still connecting. This tool is not yet available. Wait a moment and try again, or proceed with other work first.`
+        } else {
+          const failedServer = manager.getFailedServerForTool(toolCall.toolName)
+          if (failedServer) {
+            errorMessage = `MCP server "${failedServer.serverName}" failed to connect: ${failedServer.error}. This tool is unavailable for this session.`
+          }
+        }
+      }
 
       log.warn('invalid tool call - redirecting to error tool', {
         toolName: toolCall.toolName,
