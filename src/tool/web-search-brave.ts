@@ -163,7 +163,11 @@ export const BraveSearchTool = Tool.define<
 
       clearTimeout(timeoutId)
 
-      if (response.status === 401 || response.status === 403) {
+      if (
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 422
+      ) {
         throw new Error(
           'Brave Search API key is invalid or expired. Check BRAVE_SEARCH_API_KEY.',
         )
