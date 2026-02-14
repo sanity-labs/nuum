@@ -10,11 +10,17 @@ export {EditTool, type EditMetadata} from './edit'
 export {WriteTool, type WriteMetadata} from './write'
 export {GlobTool, type GlobMetadata} from './glob'
 export {GrepTool, type GrepMetadata} from './grep'
-export {
-  WebSearchTool,
-  type WebSearchMetadata,
-  type SearchResult,
-} from './web-search'
+export {type WebSearchMetadata, type SearchResult} from './web-search-ddg'
+export {DdgSearchTool} from './web-search-ddg'
+export {BraveSearchTool} from './web-search-brave'
+
+import {DdgSearchTool} from './web-search-ddg'
+import {BraveSearchTool} from './web-search-brave'
+
+/** Mount the right search tool based on available API keys */
+export const WebSearchTool = process.env.BRAVE_SEARCH_API_KEY
+  ? BraveSearchTool
+  : DdgSearchTool
 export {WebFetchTool, type WebFetchMetadata} from './web-fetch'
 export {
   ReflectTool,

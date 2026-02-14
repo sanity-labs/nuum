@@ -120,7 +120,7 @@ const parameters = z.object({
     .describe('Maximum number of results to return (default: 8, max: 10)'),
 })
 
-export const WebSearchTool = Tool.define<typeof parameters, WebSearchMetadata>(
+export const DdgSearchTool = Tool.define<typeof parameters, WebSearchMetadata>(
   'web_search',
   {
     get description() {
