@@ -236,7 +236,13 @@ Reflection searches the full conversation history (via FTS5 full-text search) an
 # Required
 ANTHROPIC_API_KEY=your-key-here
 
-# Optional (defaults shown)
+# Optional — Web Search
+BRAVE_SEARCH_API_KEY=your-key    # Brave Search API (recommended)
+                                  # Get a free key at https://brave.com/search/api/
+                                  # Without this, falls back to DuckDuckGo HTML scraping
+                                  # (unreliable from cloud/container IPs)
+
+# Optional — Model Selection (defaults shown)
 AGENT_MODEL_REASONING=claude-opus-4-6
 AGENT_MODEL_WORKHORSE=claude-sonnet-4-5-20250929
 AGENT_MODEL_FAST=claude-haiku-4-5-20251001

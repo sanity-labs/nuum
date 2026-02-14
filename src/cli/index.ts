@@ -114,6 +114,12 @@ JSON-RPC Mode (--stdio):
 
   Methods: run, cancel, status
 
+Environment:
+  ANTHROPIC_API_KEY       Required. Anthropic API key.
+  BRAVE_SEARCH_API_KEY    Optional. Enables Brave Search (recommended).
+                          Without it, web search falls back to DuckDuckGo.
+                          Free key: https://brave.com/search/api/
+
 Examples:
   nuum -p "What files are in src/"
   nuum -p "Refactor the auth module" --verbose

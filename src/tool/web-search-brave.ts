@@ -127,9 +127,14 @@ export const BraveSearchTool = Tool.define<
     const apiKey = process.env.BRAVE_SEARCH_API_KEY
 
     if (!apiKey) {
-      throw new Error(
-        'BRAVE_SEARCH_API_KEY is not set. Cannot use Brave Search.',
-      )
+      return {
+        output:
+          'Web search is unavailable. The BRAVE_SEARCH_API_KEY environment variable is not set. ' +
+          'The user needs to set a Brave Search API key. They can get a free one at https://brave.com/search/api/ ' +
+          '($5/month free credit, ~1000 searches).',
+        title: `Web search: ${query}`,
+        metadata: {query, resultCount: 0},
+      }
     }
 
     const params = new URLSearchParams({
@@ -168,17 +173,31 @@ export const BraveSearchTool = Tool.define<
         response.status === 403 ||
         response.status === 422
       ) {
-        throw new Error(
-          'Brave Search API key is invalid or expired. Check BRAVE_SEARCH_API_KEY.',
-        )
+        return {
+          output:
+            `Web search failed: the BRAVE_SEARCH_API_KEY is invalid or expired (HTTP ${response.status}). ` +
+            'The user needs to update their Brave Search API key. ' +
+            'They can manage keys at https://brave.com/search/api/',
+          title: `Web search: ${query}`,
+          metadata: {query, resultCount: 0},
+        }
       }
 
       if (response.status === 429) {
-        throw new Error('Brave Search rate limited. Try again in a moment.')
+        return {
+          output:
+            'Web search is temporarily rate limited by Brave Search. Try again in a moment.',
+          title: `Web search: ${query}`,
+          metadata: {query, resultCount: 0},
+        }
       }
 
       if (!response.ok) {
-        throw new Error(`Brave Search failed with status ${response.status}`)
+        return {
+          output: `Web search failed with unexpected error (HTTP ${response.status}). Try again later.`,
+          title: `Web search: ${query}`,
+          metadata: {query, resultCount: 0},
+        }
       }
 
       const data = (await response.json()) as BraveSearchResponse
