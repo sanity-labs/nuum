@@ -42,6 +42,22 @@ function getModelId(): string {
 }
 
 const log = Log.create({service: 'server'})
+const MCP_READY_WAIT_TIMEOUT_MS = 10_000
+
+async function waitForMcpReadyWithTimeout(timeoutMs: number): Promise<boolean> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+  try {
+    const ready = await Promise.race([
+      Mcp.ready().then(() => true),
+      new Promise<boolean>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve(false), timeoutMs)
+      }),
+    ])
+    return ready
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+  }
+}
 
 export interface ServerOptions {
   dbPath: string
@@ -639,8 +655,16 @@ export class Server {
     // Initialize will skip if config hash unchanged
     const reinitialized = await Mcp.initialize(mergedConfig)
     if (reinitialized) {
+      const ready = await waitForMcpReadyWithTimeout(MCP_READY_WAIT_TIMEOUT_MS)
+      if (!ready) {
+        log.warn('timed out waiting for MCP to settle after reinit', {
+          timeoutMs: MCP_READY_WAIT_TIMEOUT_MS,
+          serverCount: Object.keys(mergedConfig.mcpServers ?? {}).length,
+        })
+      }
       log.info('MCP reinitialized with message config', {
         serverCount: Object.keys(mergedConfig.mcpServers ?? {}).length,
+        ready,
       })
     }
   }

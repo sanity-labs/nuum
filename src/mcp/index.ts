@@ -550,6 +550,26 @@ export namespace Mcp {
     }
 
     /**
+     * Check if a tool name belongs to a connected/degraded server and exists there.
+     * Returns the server name if found, null otherwise.
+     */
+    getConnectedServerForTool(toolName: string): string | null {
+      const sep = toolName.indexOf('__')
+      if (sep === -1) return null
+      const serverName = toolName.slice(0, sep)
+      const mcpToolName = toolName.slice(sep + 2)
+      const server = this.servers.get(serverName)
+      if (!server) return null
+      if (server.status !== 'connected' && server.status !== 'degraded') {
+        return null
+      }
+      if (server.tools.some((t) => t.name === mcpToolName)) {
+        return serverName
+      }
+      return null
+    }
+
+    /**
      * Convert MCP tool to AI SDK tool format
      */
     private convertMcpTool(serverName: string, mcpTool: Tool, client: Client) {
@@ -639,8 +659,18 @@ export namespace Mcp {
   /**
    * Compute a simple hash of the config for change detection
    */
+  function canonicalize(value: unknown): unknown {
+    if (value === null || typeof value !== 'object') return value
+    if (Array.isArray(value)) return value.map(canonicalize)
+    const obj = value as Record<string, unknown>
+    const sorted = Object.keys(obj)
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => [key, canonicalize(obj[key])] as const)
+    return Object.fromEntries(sorted)
+  }
+
   function hashConfig(config: ConfigType): string {
-    return JSON.stringify(config)
+    return JSON.stringify(canonicalize(config))
   }
 
   /**

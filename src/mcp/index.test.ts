@@ -422,6 +422,58 @@ describe('Mcp', () => {
       const skippedAgain = await Mcp.initialize(configCopy)
       expect(skippedAgain).toBe(false)
     })
+
+    test('initialize skips when server key order differs', async () => {
+      await Mcp.shutdown()
+
+      const config1: Mcp.ConfigType = {
+        mcpServers: {
+          a: {command: 'echo', args: ['a']},
+          b: {command: 'echo', args: ['b']},
+        },
+      }
+      const config2: Mcp.ConfigType = {
+        mcpServers: {
+          b: {command: 'echo', args: ['b']},
+          a: {command: 'echo', args: ['a']},
+        },
+      }
+
+      await Mcp.initialize(config1)
+      const skipped = await Mcp.initialize(config2)
+      expect(skipped).toBe(false)
+    })
+
+    test('initialize skips when nested key order differs', async () => {
+      await Mcp.shutdown()
+
+      const config1: Mcp.ConfigType = {
+        mcpServers: {
+          http: {
+            url: 'https://example.com/mcp',
+            headers: {
+              Authorization: 'Bearer token',
+              'X-Api-Key': 'abc123',
+            },
+          },
+        },
+      }
+      const config2: Mcp.ConfigType = {
+        mcpServers: {
+          http: {
+            url: 'https://example.com/mcp',
+            headers: {
+              'X-Api-Key': 'abc123',
+              Authorization: 'Bearer token',
+            },
+          },
+        },
+      }
+
+      await Mcp.initialize(config1)
+      const skipped = await Mcp.initialize(config2)
+      expect(skipped).toBe(false)
+    })
   })
 
   describe('Non-blocking init', () => {
@@ -502,6 +554,81 @@ describe('Mcp', () => {
       expect(result!.error).toBeTruthy()
 
       await manager.shutdown()
+    })
+
+    test('getConnectedServerForTool returns server for connected tool', () => {
+      const manager = new Mcp.Manager()
+      const servers = (manager as unknown as {servers: Map<string, unknown>})
+        .servers
+
+      servers.set('miriad', {
+        name: 'miriad',
+        config: {command: 'echo', args: []},
+        client: null,
+        tools: [{name: 'send_message'}],
+        allToolCount: 1,
+        issues: [],
+        status: 'connected',
+      })
+
+      const result = manager.getConnectedServerForTool('miriad__send_message')
+      expect(result).toBe('miriad')
+      expect(manager.getConnectedServerForTool('miriad__missing')).toBeNull()
+    })
+
+    test('getConnectedServerForTool ignores connecting/failed servers', () => {
+      const manager = new Mcp.Manager()
+      const servers = (manager as unknown as {servers: Map<string, unknown>})
+        .servers
+
+      servers.set('miriad', {
+        name: 'miriad',
+        config: {command: 'echo', args: []},
+        client: null,
+        tools: [{name: 'send_message'}],
+        allToolCount: 1,
+        issues: [],
+        status: 'connecting',
+      })
+
+      expect(manager.getConnectedServerForTool('miriad__send_message')).toBeNull()
+    })
+
+    test('tools become available after ready settles async connections', async () => {
+      const manager = new Mcp.Manager()
+      const originalConnectServer = (manager as any).connectServer
+
+      ;(manager as any).connectServer = async (name: string, config: unknown) => {
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        return {
+          name,
+          config,
+          client: {close: async () => {}},
+          tools: [{name: 'send_message'}],
+          allToolCount: 1,
+          issues: [],
+          status: 'connected',
+        }
+      }
+
+      try {
+        await manager.initialize({
+          mcpServers: {
+            miriad: {command: 'mcp-server'},
+          },
+        })
+
+        // Non-blocking init: still connecting, no tools exposed yet.
+        expect(manager.listTools()).toEqual([])
+
+        await manager.ready()
+
+        // After settle, tools are visible and callable.
+        expect(manager.listTools()).toEqual(['miriad__send_message'])
+      } finally {
+        ;(manager as any).connectServer = originalConnectServer
+        await manager.shutdown()
+      }
     })
 
     test('disabled servers are not in connecting state', async () => {
