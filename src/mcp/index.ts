@@ -550,6 +550,26 @@ export namespace Mcp {
     }
 
     /**
+     * Check if a tool name belongs to a connected/degraded server and exists there.
+     * Returns the server name if found, null otherwise.
+     */
+    getConnectedServerForTool(toolName: string): string | null {
+      const sep = toolName.indexOf('__')
+      if (sep === -1) return null
+      const serverName = toolName.slice(0, sep)
+      const mcpToolName = toolName.slice(sep + 2)
+      const server = this.servers.get(serverName)
+      if (!server) return null
+      if (server.status !== 'connected' && server.status !== 'degraded') {
+        return null
+      }
+      if (server.tools.some((t) => t.name === mcpToolName)) {
+        return serverName
+      }
+      return null
+    }
+
+    /**
      * Convert MCP tool to AI SDK tool format
      */
     private convertMcpTool(serverName: string, mcpTool: Tool, client: Client) {

@@ -157,6 +157,11 @@ Please check the tool's parameter schema and try again with correct arguments.`
           const failedServer = manager.getFailedServerForTool(toolCall.toolName)
           if (failedServer) {
             errorMessage = `MCP server "${failedServer.serverName}" failed to connect: ${failedServer.error}. This tool is unavailable for this session.`
+          } else {
+            const connectedServer = manager.getConnectedServerForTool(toolCall.toolName)
+            if (connectedServer) {
+              errorMessage = `MCP server "${connectedServer}" is connected, but this turn started before its tools were available. Start a new turn and retry this tool.`
+            }
           }
         }
       }
