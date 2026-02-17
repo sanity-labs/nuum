@@ -422,6 +422,58 @@ describe('Mcp', () => {
       const skippedAgain = await Mcp.initialize(configCopy)
       expect(skippedAgain).toBe(false)
     })
+
+    test('initialize skips when server key order differs', async () => {
+      await Mcp.shutdown()
+
+      const config1: Mcp.ConfigType = {
+        mcpServers: {
+          a: {command: 'echo', args: ['a']},
+          b: {command: 'echo', args: ['b']},
+        },
+      }
+      const config2: Mcp.ConfigType = {
+        mcpServers: {
+          b: {command: 'echo', args: ['b']},
+          a: {command: 'echo', args: ['a']},
+        },
+      }
+
+      await Mcp.initialize(config1)
+      const skipped = await Mcp.initialize(config2)
+      expect(skipped).toBe(false)
+    })
+
+    test('initialize skips when nested key order differs', async () => {
+      await Mcp.shutdown()
+
+      const config1: Mcp.ConfigType = {
+        mcpServers: {
+          http: {
+            url: 'https://example.com/mcp',
+            headers: {
+              Authorization: 'Bearer token',
+              'X-Api-Key': 'abc123',
+            },
+          },
+        },
+      }
+      const config2: Mcp.ConfigType = {
+        mcpServers: {
+          http: {
+            url: 'https://example.com/mcp',
+            headers: {
+              'X-Api-Key': 'abc123',
+              Authorization: 'Bearer token',
+            },
+          },
+        },
+      }
+
+      await Mcp.initialize(config1)
+      const skipped = await Mcp.initialize(config2)
+      expect(skipped).toBe(false)
+    })
   })
 
   describe('Non-blocking init', () => {

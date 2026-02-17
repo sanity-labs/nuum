@@ -659,8 +659,18 @@ export namespace Mcp {
   /**
    * Compute a simple hash of the config for change detection
    */
+  function canonicalize(value: unknown): unknown {
+    if (value === null || typeof value !== 'object') return value
+    if (Array.isArray(value)) return value.map(canonicalize)
+    const obj = value as Record<string, unknown>
+    const sorted = Object.keys(obj)
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => [key, canonicalize(obj[key])] as const)
+    return Object.fromEntries(sorted)
+  }
+
   function hashConfig(config: ConfigType): string {
-    return JSON.stringify(config)
+    return JSON.stringify(canonicalize(config))
   }
 
   /**
