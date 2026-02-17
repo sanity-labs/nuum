@@ -504,6 +504,81 @@ describe('Mcp', () => {
       await manager.shutdown()
     })
 
+    test('getConnectedServerForTool returns server for connected tool', () => {
+      const manager = new Mcp.Manager()
+      const servers = (manager as unknown as {servers: Map<string, unknown>})
+        .servers
+
+      servers.set('miriad', {
+        name: 'miriad',
+        config: {command: 'echo', args: []},
+        client: null,
+        tools: [{name: 'send_message'}],
+        allToolCount: 1,
+        issues: [],
+        status: 'connected',
+      })
+
+      const result = manager.getConnectedServerForTool('miriad__send_message')
+      expect(result).toBe('miriad')
+      expect(manager.getConnectedServerForTool('miriad__missing')).toBeNull()
+    })
+
+    test('getConnectedServerForTool ignores connecting/failed servers', () => {
+      const manager = new Mcp.Manager()
+      const servers = (manager as unknown as {servers: Map<string, unknown>})
+        .servers
+
+      servers.set('miriad', {
+        name: 'miriad',
+        config: {command: 'echo', args: []},
+        client: null,
+        tools: [{name: 'send_message'}],
+        allToolCount: 1,
+        issues: [],
+        status: 'connecting',
+      })
+
+      expect(manager.getConnectedServerForTool('miriad__send_message')).toBeNull()
+    })
+
+    test('tools become available after ready settles async connections', async () => {
+      const manager = new Mcp.Manager()
+      const originalConnectServer = (manager as any).connectServer
+
+      ;(manager as any).connectServer = async (name: string, config: unknown) => {
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        return {
+          name,
+          config,
+          client: {close: async () => {}},
+          tools: [{name: 'send_message'}],
+          allToolCount: 1,
+          issues: [],
+          status: 'connected',
+        }
+      }
+
+      try {
+        await manager.initialize({
+          mcpServers: {
+            miriad: {command: 'mcp-server'},
+          },
+        })
+
+        // Non-blocking init: still connecting, no tools exposed yet.
+        expect(manager.listTools()).toEqual([])
+
+        await manager.ready()
+
+        // After settle, tools are visible and callable.
+        expect(manager.listTools()).toEqual(['miriad__send_message'])
+      } finally {
+        ;(manager as any).connectServer = originalConnectServer
+        await manager.shutdown()
+      }
+    })
+
     test('disabled servers are not in connecting state', async () => {
       const manager = new Mcp.Manager()
 
