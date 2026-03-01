@@ -635,6 +635,7 @@ export namespace Mcp {
 
   let manager: Manager | null = null
   let lastConfigHash: string | null = null
+  let initPromise: Promise<boolean> | null = null
 
   /**
    * Compute a simple hash of the config for change detection
@@ -664,20 +665,39 @@ export namespace Mcp {
    * Initialize MCP with config.
    * Only reinitializes if config has changed or not yet initialized.
    * Returns true if initialization was performed, false if skipped.
+   *
+   * Uses a serialization lock so concurrent callers wait for any in-flight
+   * initialization to complete before re-checking the config hash.
    */
   export async function initialize(config?: ConfigType): Promise<boolean> {
-    const mcpConfig = config ?? (await loadConfig())
-    const configHash = hashConfig(mcpConfig)
-
-    // Skip if already initialized with same config
-    if (manager && lastConfigHash === configHash) {
-      return false
+    // Wait for any in-flight initialization to complete first
+    while (initPromise) {
+      await initPromise
     }
 
-    // Initialize (or reinitialize with new config)
-    await getManager().initialize(mcpConfig)
-    lastConfigHash = configHash
-    return true
+    // Claim the lock BEFORE any async work (loadConfig, etc.)
+    let resolve!: (value: boolean) => void
+    initPromise = new Promise<boolean>((r) => {
+      resolve = r
+    })
+
+    try {
+      const mcpConfig = config ?? (await loadConfig())
+      const configHash = hashConfig(mcpConfig)
+
+      // Skip if already initialized with same config
+      if (manager && lastConfigHash === configHash) {
+        return false
+      }
+
+      // Initialize (or reinitialize with new config)
+      await getManager().initialize(mcpConfig)
+      lastConfigHash = configHash
+      return true
+    } finally {
+      initPromise = null
+      resolve(false) // unblock any waiters that arrived during our work
+    }
   }
 
   /**
